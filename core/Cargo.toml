@@ -1,0 +1,16 @@
+[package]
+name = "palantir-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kube = { version = "0.90.0", features = ["runtime", "derive", "ws", "client"] }
+k8s-openapi = { version = "0.21.0", features = ["v1_28"] }
+tokio = { version = "1.36", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+dirs = "5.0"
+futures = "0.3"
+serde_yaml = "0.9.34"

@@ -1,0 +1,10 @@
+{
+  "name": "palantir-app",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.6"
+  }
+}
