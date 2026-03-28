@@ -43,6 +43,7 @@
 *   [ ] **[BUG] Container Termination**: 임시 컨테이너 프로세스 종료(`kill 1`) 로직 안정화
 *   [ ] **Port Forwarding**: GUI 상에서 간편하게 로컬 포트 포워딩 설정 및 관리
 *   [ ] **Cluster Context Switch**: 여러 클러스터 설정을 자유롭게 전환하는 기능
+*   [ ] **Kubectl Command Assistant**: UI 액션(삭제, 스케일, 디버그 등)에 대응하는 `kubectl` 명령어를 `?` 아이콘을 통해 보여주고 즉시 복사할 수 있는 가이드 기능 추가 (학습 및 CLI 연동 강화)
 
 ## 🟣 Phase 6: Extended Ecosystem
 *   [ ] **Helm Integration**: 설치된 차트 목록 조회 및 업그레이드/삭제
