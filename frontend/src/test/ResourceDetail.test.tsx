@@ -27,7 +27,10 @@ test('ResourceDetail fetches and displays YAML on mount', async () => {
     <ResourceDetail 
       resource={mockResource} 
       namespace="default" 
-      onClose={vi.fn()} 
+      onClose={vi.fn()}
+      onUpdated={vi.fn()}
+      onDeleted={vi.fn()}
+      onDeleteStart={vi.fn()}
     />
   );
 
@@ -54,6 +57,7 @@ test('ResourcesPage calls get_resources_generic with correct GVK', async () => {
     <ResourcesPage 
       definition={mockDefinition} 
       namespace="prod" 
+      deletingResources={[]}
       onViewDetail={vi.fn()} 
     />
   );

@@ -10,8 +10,13 @@ fn main() {
             commands::get_namespaces,
             commands::get_deployments,
             commands::get_services,
-            commands::get_resources_generic, // 추가
-            commands::get_resource_yaml,     // 추가
+            commands::get_resources_generic,
+            commands::get_resource_yaml,
+            commands::apply_resource_yaml,
+            commands::delete_resource_generic,
+            commands::scale_resource,
+            commands::restart_resource,
+            commands::start_event_stream,
             commands::start_exec,
             commands::start_logs,
             commands::stop_session

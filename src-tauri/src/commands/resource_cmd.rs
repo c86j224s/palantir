@@ -44,6 +44,72 @@ pub async fn get_resource_yaml(
         .map_err(|e| e.to_string())
 }
 
+// 리소스 YAML 수정 반영(Apply) 커맨드
+#[tauri::command]
+pub async fn apply_resource_yaml(
+    namespace: String,
+    group: String,
+    version: String,
+    kind: String,
+    name: String,
+    yaml_content: String,
+) -> Result<(), String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let gvk = GroupVersionKind::gvk(&group, &version, &kind);
+    generic::apply_resource_yaml(&client, &namespace, &gvk, &name, &yaml_content)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// 리소스 삭제 커맨드
+#[tauri::command]
+pub async fn delete_resource_generic(
+    namespace: String,
+    group: String,
+    version: String,
+    kind: String,
+    name: String,
+) -> Result<(), String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let gvk = GroupVersionKind::gvk(&group, &version, &kind);
+    generic::delete_resource_generic(&client, &namespace, &gvk, &name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// 리소스 스케일 조절 커맨드
+#[tauri::command]
+pub async fn scale_resource(
+    namespace: String,
+    group: String,
+    version: String,
+    kind: String,
+    name: String,
+    replicas: i32,
+) -> Result<i64, String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let gvk = GroupVersionKind::gvk(&group, &version, &kind);
+    generic::scale_resource_generic(&client, &namespace, &gvk, &name, replicas)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// 리소스 재시작(Rollout Restart) 커맨드
+#[tauri::command]
+pub async fn restart_resource(
+    namespace: String,
+    group: String,
+    version: String,
+    kind: String,
+    name: String,
+) -> Result<i64, String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let gvk = GroupVersionKind::gvk(&group, &version, &kind);
+    generic::restart_resource_generic(&client, &namespace, &gvk, &name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // 기존 커맨드들 유지
 #[tauri::command]
 pub async fn get_deployments(namespace: Option<String>) -> Result<Vec<ResourceInfo>, String> {

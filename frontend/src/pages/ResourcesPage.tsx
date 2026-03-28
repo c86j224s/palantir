@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import { RefreshCw, Hash, Server, Globe } from 'lucide-react';
+import { RefreshCw, Hash, Loader2 } from 'lucide-react';
 import { ResourceDefinition } from '../App';
 
 interface ResourceInfo {
@@ -13,19 +13,17 @@ interface ResourceInfo {
 interface Props {
   definition: ResourceDefinition;
   namespace: string;
+  deletingResources: string[];
   onViewDetail: (name: string) => void;
 }
 
-const ResourcesPage = ({ definition, namespace, onViewDetail }: Props) => {
+const ResourcesPage = ({ definition, namespace, deletingResources, onViewDetail }: Props) => {
   const [resources, setResources] = useState<ResourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchResources = async () => {
     setLoading(true);
-    setError(null);
     try {
-      // 범용 리소스 조회 커맨드 사용
       const data = await invoke<ResourceInfo[]>('get_resources_generic', { 
         namespace,
         group: definition.group,
@@ -35,7 +33,6 @@ const ResourcesPage = ({ definition, namespace, onViewDetail }: Props) => {
       setResources(data);
     } catch (err) {
       console.error(`Failed to fetch ${definition.kind}:`, err);
-      setError(`Failed to fetch ${definition.kind}.`);
       setResources([]);
     } finally {
       setLoading(false);
@@ -54,7 +51,7 @@ const ResourcesPage = ({ definition, namespace, onViewDetail }: Props) => {
             <div className="w-4 h-[1px] bg-primary" />
             Registry
           </div>
-          <h1 className="text-4xl font-black tracking-tighter uppercase italic">{definition.label}</h1>
+          <h1 className="text-4xl font-black tracking-tighter uppercase italic text-foreground">{definition.label}</h1>
         </div>
         <button 
           onClick={fetchResources}
@@ -78,39 +75,42 @@ const ResourcesPage = ({ definition, namespace, onViewDetail }: Props) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.03]">
-              {resources.map((res) => (
-                <tr 
-                  key={res.name} 
-                  className="hover:bg-white/[0.02] transition-colors group cursor-pointer"
-                  onClick={() => onViewDetail(res.name)}
-                >
-                  <td className="px-8 py-5">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-white/[0.03] flex items-center justify-center group-hover:bg-primary/10 group-hover:ring-1 ring-primary/30 transition-all">
-                        <Hash size={16} className="text-gray-600 group-hover:text-primary" />
+              {resources.map((res) => {
+                const isDeleting = deletingResources.includes(res.name);
+                return (
+                  <tr 
+                    key={res.name} 
+                    className={`transition-all group cursor-pointer ${isDeleting ? 'opacity-40 grayscale pointer-events-none' : 'hover:bg-white/[0.02]'}`}
+                    onClick={() => !isDeleting && onViewDetail(res.name)}
+                  >
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-white/[0.03] flex items-center justify-center group-hover:bg-primary/10 group-hover:ring-1 ring-primary/30 transition-all">
+                          {isDeleting ? <Loader2 size={16} className="animate-spin text-red-500" /> : <Hash size={16} className="text-gray-600 group-hover:text-primary" />}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={`font-mono text-sm font-bold transition-colors ${isDeleting ? 'text-red-400' : 'text-gray-200 group-hover:text-white'}`}>{res.name}</span>
+                          <span className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">KIND: {res.kind}</span>
+                        </div>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="font-mono text-sm font-bold text-gray-200 group-hover:text-white transition-colors">{res.name}</span>
-                        <span className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">KIND: {res.kind}</span>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/[0.03] border border-white/5 text-[10px] font-black text-gray-500 uppercase tracking-tighter">
+                        {res.namespace}
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-8 py-5">
-                    <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/[0.03] border border-white/5 text-[10px] font-black text-gray-500 uppercase tracking-tighter">
-                      {res.namespace}
-                    </div>
-                  </td>
-                  <td className="px-8 py-5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-primary/50" />
-                      <span className="text-xs font-black uppercase tracking-widest text-gray-400">{res.status}</span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-5 text-right font-mono text-[10px] text-gray-600">
-                    ID_{res.name.substring(0, 6).toUpperCase()}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${isDeleting ? 'bg-red-500 animate-pulse' : 'bg-primary/50'}`} />
+                        <span className={`text-xs font-black uppercase tracking-widest ${isDeleting ? 'text-red-500' : 'text-gray-400'}`}>{isDeleting ? 'Terminating' : res.status}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5 text-right font-mono text-[10px] text-gray-600">
+                      ID_{res.name.substring(0, 6).toUpperCase()}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {resources.length === 0 && !loading && (

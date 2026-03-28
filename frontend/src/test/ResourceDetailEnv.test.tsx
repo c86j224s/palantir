@@ -40,7 +40,10 @@ spec:
     <ResourceDetail 
       resource={mockResource} 
       namespace="default" 
-      onClose={vi.fn()} 
+      onClose={vi.fn()}
+      onUpdated={vi.fn()}
+      onDeleted={vi.fn()}
+      onDeleteStart={vi.fn()}
     />
   );
 
@@ -72,7 +75,10 @@ test('ResourceDetail does not show Environment tab for non-Pod resources', async
     <ResourceDetail 
       resource={mockResource} 
       namespace="default" 
-      onClose={vi.fn()} 
+      onClose={vi.fn()}
+      onUpdated={vi.fn()}
+      onDeleted={vi.fn()}
+      onDeleteStart={vi.fn()}
     />
   );
 

@@ -1,4 +1,4 @@
-use palantir_core::{K8sClient, actions::{exec, logs}};
+use palantir_core::{K8sClient, actions::{exec, logs, events}};
 use tauri::{Window, Runtime, State};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -13,6 +13,57 @@ pub struct TerminalSession {
 pub struct SessionManager(pub Arc<Mutex<HashMap<String, TerminalSession>>>);
 
 #[tauri::command]
+pub async fn start_event_stream<R: Runtime>(
+    window: Window<R>,
+    namespace: Option<String>,
+) -> Result<(), String> {
+    println!("🚀 [Backend] Starting Event Stream... Namespace: {:?}", namespace);
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let window_clone = window.clone();
+
+    tokio::spawn(async move {
+        let (tx, mut rx) = mpsc::channel::<events::K8sEventInfo>(100);
+        
+        println!("🔍 [Backend] Spawning Event Watcher task...");
+        // Watcher 실행
+        tokio::spawn(async move {
+            if let Err(e) = palantir_core::actions::events::stream_events(&client, namespace.as_deref(), move |ev| {
+                // blocking_send 대신 try_send를 사용하여 런타임 패닉 방지
+                let _ = tx.try_send(ev);
+            }).await {
+                println!("❌ [Backend] Event Watcher Error: {:?}", e);
+            }
+        });
+        let mut batch = Vec::new();
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(200));
+
+        loop {
+            tokio::select! {
+                ev = rx.recv() => {
+                    if let Some(e) = ev {
+                        batch.push(e);
+                    } else { 
+                        println!("🛑 [Backend] Event receiver channel closed.");
+                        break; 
+                    }
+                }
+                _ = interval.tick() => {
+                    if !batch.is_empty() {
+                        println!("📡 [Backend] Emitting batch of {} events to frontend", batch.len());
+                        if let Err(e) = window_clone.emit("k8s-events-batch", &batch) {
+                            println!("❌ [Backend] Failed to emit events to frontend: {:?}", e);
+                        }
+                        batch.clear();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn start_exec<R: Runtime>(
     window: Window<R>,
     state: State<'_, SessionManager>,
@@ -21,7 +72,6 @@ pub async fn start_exec<R: Runtime>(
     container_name: Option<String>,
 ) -> Result<String, String> {
     let session_id = uuid::Uuid::new_v4().to_string();
-    
     let client = K8sClient::new().await.map_err(|e| e.to_string())?;
     let mut attached = exec::exec_shell(&client, &namespace, &pod_name, container_name.as_deref())
         .await
@@ -39,7 +89,6 @@ pub async fn start_exec<R: Runtime>(
     let window_clone = window.clone();
     let sid_for_output = session_id.clone();
 
-    // 입력 리슨
     let input_event = format!("exec-input:{}", session_id);
     window.listen(input_event, move |event| {
         if let Some(payload) = event.payload() {
@@ -49,7 +98,6 @@ pub async fn start_exec<R: Runtime>(
         }
     });
 
-    // Stdin 쓰기 & 종료 대기
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -64,22 +112,15 @@ pub async fn start_exec<R: Runtime>(
         }
     });
 
-    // Stdout 읽기 및 종료 감지
     tokio::spawn(async move {
         let output_event = format!("exec-output:{}", sid_for_output);
         let closed_event = format!("session-closed:{}", sid_for_output);
-        
         let res = exec::stream_exec(attached, move |data| {
             let _ = window_clone.emit(&output_event, data);
         }).await;
-        
         match res {
-            Ok(_) => {
-                let _ = window.emit(&closed_event, "normal");
-            }
-            Err(e) => {
-                let _ = window.emit(&closed_event, format!("Error: {}", e));
-            }
+            Ok(_) => { let _ = window.emit(&closed_event, "normal"); }
+            Err(e) => { let _ = window.emit(&closed_event, format!("Error: {}", e)); }
         }
     });
 
