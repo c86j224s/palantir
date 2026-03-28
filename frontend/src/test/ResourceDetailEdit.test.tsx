@@ -31,7 +31,7 @@ test('ResourceDetail blocks invalid YAML and calls toast.error', async () => {
   vi.mocked(tauri.invoke).mockResolvedValue(mockYaml);
 
   const { container } = render(
-    <ResourceDetail resource={mockResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} />
+    <ResourceDetail resource={mockResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
   );
 
   await waitFor(() => {
@@ -67,7 +67,7 @@ test('ResourceDetail requires double confirmation for deletion', async () => {
   vi.mocked(tauri.invoke).mockResolvedValue('');
 
   const { container } = render(
-    <ResourceDetail resource={mockResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} />
+    <ResourceDetail resource={mockResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
   );
 
   await waitFor(() => {

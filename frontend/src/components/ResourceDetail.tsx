@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, Copy, Check, Trash2, Edit2, Save, ShieldAlert, 
-  Braces, RefreshCw, Sliders, Loader2, AlertCircle, Info
+  Braces, RefreshCw, Sliders, Loader2, AlertCircle, Info, Zap, Terminal as TerminalIcon, FileText, Play, Activity
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { ResourceDefinition } from '../App';
@@ -16,27 +16,19 @@ interface Props {
   onUpdated: () => void;
   onDeleted: () => void;
   onDeleteStart: () => void;
+  onOpenTerminal: (podId: string, type: 'exec' | 'logs', container?: string) => void;
 }
 
-// K8s 에러 메시지를 한글로 친절하게 변환하는 유틸리티 (Agent C 승인안)
 const translateK8sError = (err: string): string => {
-  if (err.includes("pod updates may not change fields other than")) {
-    return "파드의 설정(환경변수, 커맨드 등)은 생성 후 수정할 수 없습니다. 설정을 바꾸려면 파드를 삭제 후 재생성하거나, 상위 리소스(Deployment 등)의 YAML을 수정하세요.";
-  }
-  if (err.includes("metadata.managedFields must be nil")) {
-    return "시스템 관리 필드 충돌이 발생했습니다. 백엔드에서 정제 처리를 시도했으나 실패했습니다.";
-  }
-  if (err.includes("Forbidden")) {
-    return "권한이 없거나 쿠버네티스 제약 사항으로 인해 거부되었습니다.";
-  }
+  if (err.includes("pod updates may not change fields other than")) return "파드 설정은 불변입니다. 이미지 외 수정은 불가능합니다.";
+  if (err.includes("Forbidden")) return "권한 부족 또는 정책에 의해 거부되었습니다.";
   return err;
 };
 
-const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdated, onDeleted, onDeleteStart }) => {
+const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdated, onDeleted, onDeleteStart, onOpenTerminal }) => {
   const [yamlStr, setYamlStr] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [copied, setCopying] = useState(false);
-  const [activeTab, setActiveTab] = useState<'yaml' | 'env'>('yaml');
+  const [activeTab, setActiveTab] = useState<'yaml' | 'env' | 'debug' | 'logs'>('yaml');
   
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -48,8 +40,18 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
   
   const [deleteConfirmPhase, setDeleteConfirmPhase] = useState(0);
 
+  // Debug states
+  const [debugImage, setDebugImage] = useState('busybox:latest');
+  const [isInjecting, setIsInjecting] = useState(false);
+  const [ephemeralContainers, setEphemeralContainers] = useState<any[]>([]);
+
+  // Static Logs state
+  const [staticLogs, setStaticLogs] = useState<string>('');
+  const [logsLoading, setLogsLoading] = useState(false);
+
   useEffect(() => {
     fetchResourceData();
+    if (resource.definition.kind === 'Pod') fetchEphemeralContainers();
   }, [resource, namespace]);
 
   const fetchResourceData = async () => {
@@ -76,31 +78,87 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
     }
   };
 
+  const fetchEphemeralContainers = async () => {
+    try {
+      const pod: any = await invoke('get_pod_detail', { namespace, podName: resource.name });
+      setEphemeralContainers(pod.ephemeral_containers || []);
+    } catch (err) {
+      console.error("Failed to fetch ephemeral containers:", err);
+    }
+  };
+
+  const fetchStaticLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const data = await invoke<string>('get_static_logs', {
+        namespace, podName: resource.name, containerName: null
+      });
+      setStaticLogs(data);
+    } catch (err) {
+      setStaticLogs(`Error fetching logs: ${err}`);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'logs') fetchStaticLogs();
+  }, [activeTab, resource.name]);
+
   const handleSaveYAML = async () => {
     try { yamlParser.load(editContent); } catch (e: any) {
       toast.error("Invalid YAML Syntax", { description: e.message });
       return;
     }
-
     setIsProcessing(true);
     const promise = invoke('apply_resource_yaml', {
       namespace, group: resource.definition.group, version: resource.definition.version,
       kind: resource.definition.kind, name: resource.name, yamlContent: editContent
     });
-
     toast.promise(promise, {
       loading: 'Applying configuration...',
-      success: () => {
-        setYamlStr(editContent);
-        setIsEditing(false);
-        onUpdated();
-        return 'Configuration applied successfully';
+      success: () => { setYamlStr(editContent); setIsEditing(false); onUpdated(); return 'Applied successfully'; },
+      error: (err) => `Apply failed: ${translateK8sError(String(err))}`,
+      finally: () => setIsProcessing(false)
+    });
+  };
+
+  const handleInjectDebug = async () => {
+    setIsInjecting(true);
+    const promise = invoke<string>('inject_debug_container', {
+      namespace, podName: resource.name, image: debugImage
+    });
+
+    toast.promise(promise, {
+      loading: `Injecting ${debugImage} and waiting for start...`,
+      success: (containerName) => {
+        setIsInjecting(false);
+        fetchEphemeralContainers();
+        toast.success("Ready! Attaching to debug console.");
+        onOpenTerminal(`${namespace}/${resource.name}`, 'exec', containerName);
+        return `Container ${containerName} is live.`;
       },
       error: (err) => {
-        const msg = translateK8sError(String(err));
-        return `Apply failed: ${msg}`;
+        setIsInjecting(false);
+        const errStr = String(err);
+        if (errStr.includes("403") || errStr.includes("Forbidden")) return "권한 부족: ephemeralcontainers 패치 권한이 필요합니다.";
+        return `Injection failed: ${translateK8sError(errStr)}`;
+      }
+    });
+  };
+
+  const handleTerminateSession = async (containerName: string) => {
+    const promise = invoke('terminate_debug_container', {
+      namespace, podName: resource.name, containerName
+    });
+
+    toast.promise(promise, {
+      loading: `Terminating ${containerName}...`,
+      success: () => {
+        fetchEphemeralContainers();
+        return `${containerName} terminated.`;
       },
-      finally: () => setIsProcessing(false)
+      error: (err) => `Failed to terminate: ${err}`
     });
   };
 
@@ -110,14 +168,9 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
       namespace, group: resource.definition.group, version: resource.definition.version,
       kind: resource.definition.kind, name: resource.name, replicas: pendingReplicas
     });
-
     toast.promise(promise, {
       loading: `Scaling to ${pendingReplicas} replicas...`,
-      success: () => {
-        setOriginalReplicas(pendingReplicas);
-        onUpdated();
-        return `Resource scaled to ${pendingReplicas}`;
-      },
+      success: () => { setOriginalReplicas(pendingReplicas); onUpdated(); return `Scaled to ${pendingReplicas}`; },
       error: (err) => `Scale failed: ${translateK8sError(String(err))}`,
       finally: () => setIsProcessing(false)
     });
@@ -130,14 +183,9 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
       namespace, group: resource.definition.group, version: resource.definition.version,
       kind: resource.definition.kind, name: resource.name
     });
-
     toast.promise(promise, {
       loading: 'Triggering rollout restart...',
-      success: () => {
-        onUpdated();
-        fetchResourceData();
-        return 'Rollout restart triggered successfully';
-      },
+      success: () => { onUpdated(); fetchResourceData(); return 'Restart triggered successfully'; },
       error: (err) => `Restart failed: ${translateK8sError(String(err))}`,
       finally: () => setIsProcessing(false)
     });
@@ -146,27 +194,19 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
   const handleDelete = async () => {
     if (deleteConfirmPhase === 0) {
       setDeleteConfirmPhase(1);
-      setTimeout(() => setDeleteConfirmPhase(p => p === 1 ? 0 : p), 3000);
+      setTimeout(() => setDeleteConfirmPhase(0), 3000);
       return;
     }
     setDeleteConfirmPhase(2);
-    onDeleteStart(); // 목록 UI에 삭제 시작 알림
+    onDeleteStart();
     const promise = invoke('delete_resource_generic', {
       namespace, group: resource.definition.group, version: resource.definition.version,
       kind: resource.definition.kind, name: resource.name
     });
-
     toast.promise(promise, {
       loading: `Deleting ${resource.name}...`,
-      success: () => {
-        onDeleted();
-        onClose();
-        return `${resource.name} deleted`;
-      },
-      error: (err) => {
-        setDeleteConfirmPhase(0);
-        return `Delete failed: ${translateK8sError(String(err))}`;
-      }
+      success: () => { onDeleted(); onClose(); return `${resource.name} deleted`; },
+      error: (err) => { setDeleteConfirmPhase(0); return `Delete failed: ${translateK8sError(String(err))}`; }
     });
   };
 
@@ -189,15 +229,13 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
   }, [yamlStr, resource.definition.kind]);
 
   const showScale = ['Deployment', 'StatefulSet', 'ReplicaSet'].includes(resource.definition.kind);
-  const showRestart = ['Deployment', 'StatefulSet', 'DaemonSet'].includes(resource.definition.kind);
 
   return (
     <motion.div
       initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed top-0 right-0 bottom-0 w-full max-w-3xl bg-card border-l border-border shadow-2xl z-[150] flex flex-col"
+      className="fixed top-0 right-0 bottom-0 w-full max-w-3xl bg-card border-l border-border shadow-2xl z-[150] flex flex-col font-sans"
     >
-      {/* Header */}
       <div className="h-20 flex items-center justify-between px-8 border-b border-border bg-background/50 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -208,7 +246,6 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{resource.definition.kind} • {namespace}</span>
           </div>
         </div>
-        
         <div className="flex items-center gap-2">
           {!isEditing && (
             <>
@@ -225,118 +262,85 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
         </div>
       </div>
 
-      {/* Pod Immutability Warning Banner (Agent A 제안) */}
-      {isEditing && resource.definition.kind === 'Pod' && (
-        <div className="bg-yellow-500/10 border-b border-yellow-500/20 px-8 py-3 flex items-start gap-3 animate-in slide-in-from-top-1">
-          <AlertCircle size={16} className="text-yellow-500 shrink-0 mt-0.5" />
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest">Pod Immutability Warning</span>
-            <span className="text-xs text-yellow-200/80 leading-relaxed font-medium">파드는 생성 후 대부분의 설정이 불변입니다. 이미지 외 필드 수정 시 에러가 발생할 수 있습니다.</span>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Actions (Scale & Restart) */}
-      {!isEditing && (showScale || showRestart) && (
-        <div className="p-6 bg-white/[0.02] border-b border-border grid grid-cols-1 md:grid-cols-2 gap-6">
-          {showScale && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-end">
-                <div className="flex items-center gap-2 text-primary">
-                  <Sliders size={14} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Replicas</span>
-                </div>
-                <div className="text-xs font-mono">
-                  <span className="text-green-500 font-bold">{readyReplicas}</span>
-                  <span className="text-gray-600 mx-1">/</span>
-                  <span className="text-primary font-bold">{pendingReplicas}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <input 
-                  type="range" min="0" max="20" 
-                  value={pendingReplicas} 
-                  onChange={(e) => setPendingReplicas(parseInt(e.target.value))}
-                  className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
-                />
-                {pendingReplicas !== originalReplicas && (
-                  <button 
-                    onClick={handleApplyScale}
-                    disabled={isProcessing}
-                    className="px-3 py-1 bg-primary text-primary-foreground text-[9px] font-black uppercase rounded-lg hover:scale-105 transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)]"
-                  >
-                    Apply
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          {showRestart && (
-            <div className="flex flex-col justify-end">
-              <button 
-                onClick={handleRestart}
-                disabled={isProcessing}
-                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary transition-all group"
-              >
-                <RefreshCw size={14} className={isProcessing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Rollout Restart</span>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tabs */}
       {!isEditing && (
         <div className="flex px-8 pt-4 gap-4 border-b border-border bg-card/30">
           <TabItem active={activeTab === 'yaml'} label="Specifications" onClick={() => setActiveTab('yaml')} />
           {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'env'} label="Environment" onClick={() => setActiveTab('env')} />}
+          {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'debug'} label="Debug Session" onClick={() => setActiveTab('debug')} />}
+          {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'logs'} label="Full Logs" onClick={() => setActiveTab('logs')} />}
         </div>
       )}
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-auto bg-[#050505] relative">
+      <div className="flex-1 overflow-auto bg-[#050505] relative custom-scrollbar">
         {loading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4">
-            <Loader2 size={32} className="text-primary animate-spin" />
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Syncing Telemetry...</span>
-          </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4"><Loader2 size={32} className="text-primary animate-spin" /><span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Syncing Telemetry...</span></div>
         ) : isEditing ? (
-          <div className="h-full flex flex-col">
-            <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} className="flex-1 w-full bg-transparent text-primary/90 font-mono text-xs leading-relaxed p-8 outline-none resize-none" />
-            <div className="p-4 border-t border-border bg-[#0a0a0a] flex justify-end gap-3">
-              <button onClick={() => setIsEditing(false)} className="px-6 py-2 rounded-xl text-[10px] font-bold text-muted-foreground hover:bg-white/5 uppercase tracking-widest transition-colors">Cancel</button>
-              <button onClick={handleSaveYAML} disabled={isProcessing} className="flex items-center gap-2 px-6 py-2 rounded-xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-widest hover:bg-primary/90 transition-all disabled:opacity-50">
-                {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                Apply Configuration
-              </button>
-            </div>
-          </div>
+          <div className="h-full flex flex-col"><textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} className="flex-1 w-full bg-transparent text-primary/90 font-mono text-xs leading-relaxed p-8 outline-none resize-none" /><div className="p-4 border-t border-border bg-[#0a0a0a] flex justify-end gap-3"><button onClick={() => setIsEditing(false)} className="px-6 py-2 rounded-xl text-[10px] font-bold text-muted-foreground hover:bg-white/5 uppercase tracking-widest transition-colors">Cancel</button><button onClick={handleSaveYAML} disabled={isProcessing} className="flex items-center gap-2 px-6 py-2 rounded-xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-widest hover:bg-primary/90 transition-all disabled:opacity-50">{isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}Apply Configuration</button></div></div>
         ) : activeTab === 'yaml' ? (
-          <pre className="p-8 font-mono text-xs leading-relaxed text-blue-300/90 selection:bg-primary/30">
-            {yamlStr.split('\n').map((line, i) => (
-              <div key={i} className="flex group"><span className="w-10 shrink-0 text-gray-700 select-none text-right pr-4">{i + 1}</span><span className={line.includes(':') ? 'text-primary/80' : ''}>{line}</span></div>
-            ))}
-          </pre>
+          <pre className="p-8 font-mono text-xs leading-relaxed text-blue-300/90 selection:bg-primary/30">{yamlStr.split('\n').map((line, i) => (<div key={i} className="flex group"><span className="w-10 shrink-0 text-gray-700 select-none text-right pr-4">{i + 1}</span><span className={line.includes(':') ? 'text-primary/80' : ''}>{line}</span></div>))}</pre>
+        ) : activeTab === 'env' ? (
+          <div className="p-8 space-y-4 animate-in fade-in slide-in-from-right-2 duration-300">{envVars.length > 0 ? envVars.map((v, i) => (<div key={i} className="flex flex-col p-4 bg-white/[0.02] border border-white/5 rounded-2xl group hover:border-primary/30 transition-colors"><span className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{v.name}</span><div className="bg-black/40 p-3 rounded-xl font-mono text-xs text-green-400/80 break-all border border-white/5">{v.value}</div></div>)) : <div className="py-20 flex flex-col items-center justify-center text-gray-600 space-y-4"><Info size={40} className="opacity-20" /><span className="font-bold uppercase tracking-widest text-xs">No env vars detected.</span></div>}</div>
+        ) : activeTab === 'logs' ? (
+          <div className="h-full flex flex-col relative bg-[#0a0a0a]">
+            {logsLoading ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-[#0a0a0a]/80 z-10"><Loader2 size={24} className="text-primary animate-spin" /><span className="text-[10px] font-bold text-muted-foreground uppercase">Pulling static logs...</span></div>
+            ) : (
+              <pre className="p-8 font-mono text-[11px] leading-relaxed text-gray-300/90 selection:bg-primary/30 whitespace-pre-wrap">{staticLogs || 'No log data available for this pod.'}</pre>
+            )}
+          </div>
         ) : (
-          <div className="p-8 space-y-4 animate-in fade-in slide-in-from-right-2 duration-300">
-            {envVars.length > 0 ? envVars.map((v, i) => (
-              <div key={i} className="flex flex-col p-4 bg-white/[0.02] border border-white/5 rounded-2xl group hover:border-primary/30 transition-colors">
-                <span className="text-[10px] font-black text-primary uppercase tracking-widest mb-1">{v.name}</span>
-                <div className="bg-black/40 p-3 rounded-xl font-mono text-xs text-green-400/80 break-all border border-white/5">{v.value}</div>
-              </div>
-            )) : (
-              <div className="py-20 flex flex-col items-center justify-center text-gray-600 space-y-4">
-                <Info size={40} className="opacity-20" />
-                <span className="font-bold uppercase tracking-widest text-xs">No environment variables detected.</span>
+          <div className="p-10 space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
+            {/* Active Sessions List */}
+            {ephemeralContainers.length > 0 && (
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] flex items-center gap-2"><Activity size={14} /> Active Debug Sessions</h4>
+                <div className="space-y-2">
+                  {ephemeralContainers.map((ec) => (
+                    <div key={ec.name} className="flex items-center justify-between p-4 bg-white/[0.03] border border-white/5 rounded-2xl group hover:border-primary/20 transition-all">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-foreground">{ec.name}</span>
+                        <span className="text-[9px] text-muted-foreground font-mono uppercase">{ec.image}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${ec.state === 'Running' ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>{ec.state}</span>
+                        {ec.state === 'Running' && (
+                          <>
+                            <button onClick={() => onOpenTerminal(`${namespace}/${resource.name}`, 'exec', ec.name)} className="p-2 hover:bg-primary/20 rounded-lg text-primary transition-colors" title="Reconnect"><Play size={14} /></button>
+                            <button onClick={() => handleTerminateSession(ec.name)} className="p-2 hover:bg-red-500/20 rounded-lg text-red-500 transition-colors" title="Terminate"><Trash2 size={14} /></button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
+
+            <div className="space-y-2"><h3 className="text-xl font-black italic uppercase tracking-tighter text-foreground flex items-center gap-2"><Zap size={20} className="text-primary" /> New Debug Session</h3><p className="text-xs text-muted-foreground font-medium leading-relaxed">기존 파드에 임시 컨테이너를 주입하여 라이브 디버깅을 시작합니다.<br/>주의: 한 번 주입된 컨테이너는 파드가 종료될 때까지 제거할 수 없습니다.</p></div>
+            <div className="glass-card rounded-3xl p-8 space-y-6">
+              <div className="space-y-4"><span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Select Debug Tooling</span><div className="grid grid-cols-1 gap-3"><ImageOption active={debugImage === 'busybox:latest'} label="Busybox (Standard)" desc="Minimal shell with basic utils" onClick={() => setDebugImage('busybox:latest')} /><ImageOption active={debugImage === 'nicolaka/netshoot:latest'} label="Netshoot (Network)" desc="Powerful set of network troubleshooting tools" onClick={() => setDebugImage('nicolaka/netshoot:latest')} /><ImageOption active={debugImage === 'curlimages/curl:latest'} label="Curl (API)" desc="Focused on HTTP/API interaction tests" onClick={() => setDebugImage('curlimages/curl:latest')} /></div></div>
+              <button onClick={handleInjectDebug} disabled={isInjecting} className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_30px_rgba(59,130,246,0.3)] disabled:opacity-50 flex items-center justify-center gap-3">{isInjecting ? <Loader2 size={18} className="animate-spin" /> : <TerminalIcon size={18} />}{isInjecting ? 'Injecting System...' : 'Initiate Debug Session'}</button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Quick Scale UI */}
+      {!isEditing && showScale && (
+        <div className="p-6 bg-white/[0.02] border-t border-border space-y-3">
+          <div className="flex justify-between items-end"><div className="flex items-center gap-2 text-primary"><Sliders size={14} /><span className="text-[10px] font-black uppercase tracking-widest">Replicas</span></div><div className="text-xs font-mono"><span className="text-green-500 font-bold">{readyReplicas}</span><span className="text-gray-600 mx-1">/</span><span className="text-primary font-bold">{pendingReplicas}</span></div></div>
+          <div className="flex items-center gap-4"><input type="range" min="0" max="20" value={pendingReplicas} onChange={(e) => setPendingReplicas(parseInt(e.target.value))} className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary" />{pendingReplicas !== originalReplicas && (<button onClick={handleApplyScale} disabled={isProcessing} className="px-3 py-1 bg-primary text-primary-foreground text-[9px] font-black uppercase rounded-lg hover:scale-105 transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)]">Apply</button>)}</div>
+        </div>
+      )}
     </motion.div>
   );
 };
+
+const ImageOption = ({ active, label, desc, onClick }: any) => (
+  <button onClick={onClick} className={`text-left p-4 rounded-2xl border transition-all ${active ? 'bg-primary/10 border-primary ring-1 ring-primary/30 shadow-[inset_0_0_20px_rgba(59,130,246,0.1)]' : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
+    <div className="flex flex-col"><span className={`text-xs font-black uppercase tracking-widest ${active ? 'text-primary' : 'text-foreground'}`}>{label}</span><span className="text-[10px] text-muted-foreground mt-1">{desc}</span></div>
+  </button>
+);
 
 const TabItem = ({ active, label, onClick }: any) => (
   <button onClick={onClick} className={`pb-3 px-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative ${active ? 'text-primary' : 'text-gray-600 hover:text-gray-400'}`}>{label}{active && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_0_10px_hsl(var(--primary))]" />}</button>

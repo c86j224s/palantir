@@ -19,7 +19,11 @@ interface K8sEvent {
   last_timestamp: string;
 }
 
-const EventsViewer = () => {
+interface Props {
+  namespace: string;
+}
+
+const EventsViewer: React.FC<Props> = ({ namespace }) => {
   const [events, setEvents] = useState<K8sEvent[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);

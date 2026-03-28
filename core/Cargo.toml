@@ -14,3 +14,4 @@ thiserror = "1.0"
 dirs = "5.0"
 futures = "0.3"
 serde_yaml = "0.9.34"
+uuid = { version = "1.23.0", features = ["v4"] }

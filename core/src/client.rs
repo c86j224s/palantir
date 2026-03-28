@@ -1,5 +1,6 @@
 use kube::{Client, Config};
 use crate::config::resolve_kubeconfig;
+use serde::Serialize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -9,6 +10,16 @@ pub enum ClientError {
     KubeConfig(#[from] kube::config::KubeconfigError),
     #[error("Kube client error: {0}")]
     Kube(#[from] kube::Error),
+    #[error("Context Error: {0}")]
+    Context(String),
+}
+
+#[derive(Serialize)]
+pub struct ConnectionInfo {
+    pub cluster_url: String,
+    pub current_context: String,
+    pub kubeconfig_path: String,
+    pub insecure_skip_tls: bool,
 }
 
 pub struct K8sClient {
@@ -17,19 +28,68 @@ pub struct K8sClient {
 
 impl K8sClient {
     pub async fn new() -> Result<Self, ClientError> {
+        let (config, _) = Self::get_config_internal().await?;
+        let client = Client::try_from(config)?;
+        Ok(Self { client })
+    }
+
+    pub async fn get_info() -> Result<ConnectionInfo, ClientError> {
+        let (config, meta) = Self::get_config_internal().await?;
+        Ok(ConnectionInfo {
+            cluster_url: config.cluster_url.to_string(),
+            current_context: meta.current_context.unwrap_or_default(),
+            kubeconfig_path: meta.path,
+            insecure_skip_tls: config.accept_invalid_certs,
+        })
+    }
+
+    async fn get_config_internal() -> Result<(Config, ConfigMeta), ClientError> {
         let config_path = resolve_kubeconfig()?;
-        let kubeconfig = kube::config::Kubeconfig::read_from(config_path)?;
-        let config = Config::from_custom_kubeconfig(
+        let path_str = config_path.to_string_lossy().to_string();
+        let mut kubeconfig = kube::config::Kubeconfig::read_from(&config_path)?;
+        
+        let mut current_context = kubeconfig.current_context.clone();
+
+        if cfg!(target_os = "windows") {
+            // Context 보정
+            if current_context.is_none() || current_context.as_deref() == Some("") {
+                if let Some(first_ctx) = kubeconfig.contexts.first() {
+                    current_context = Some(first_ctx.name.clone());
+                    kubeconfig.current_context = current_context.clone();
+                }
+            }
+
+            // URL 보정 (IPv4 강제)
+            for cluster in kubeconfig.clusters.iter_mut() {
+                if let Some(c) = &mut cluster.cluster {
+                    if let Some(server) = &c.server {
+                        if server.contains("localhost") {
+                            c.server = Some(server.replace("localhost", "127.0.0.1"));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut config = Config::from_custom_kubeconfig(
             kubeconfig,
             &kube::config::KubeConfigOptions::default(),
         ).await?;
         
-        let client = Client::try_from(config)?;
-        Ok(Self { client })
+        if cfg!(target_os = "windows") {
+            config.accept_invalid_certs = true;
+        }
+        
+        Ok((config, ConfigMeta { path: path_str, current_context }))
     }
 
     pub async fn try_default() -> Result<Self, ClientError> {
         let client = Client::try_default().await?;
         Ok(Self { client })
     }
+}
+
+struct ConfigMeta {
+    path: String,
+    current_context: Option<String>,
 }

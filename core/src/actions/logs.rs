@@ -30,3 +30,21 @@ where
     
     Ok(())
 }
+
+pub async fn read_static_logs(
+    client: &K8sClient,
+    namespace: &str,
+    pod_name: &str,
+    container_name: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let pods: Api<Pod> = Api::namespaced(client.client.clone(), namespace);
+    let lp = LogParams {
+        container: container_name.map(|s| s.to_string()),
+        follow: false,
+        tail_lines: Some(1000),
+        ..Default::default()
+    };
+    
+    let logs = pods.logs(pod_name, &lp).await?;
+    Ok(logs)
+}

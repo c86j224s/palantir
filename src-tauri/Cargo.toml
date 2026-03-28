@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
+embed-resource = "3.0.8"
 tauri-build = { version = "1.5", features = [] }
 
+[features]
+# 이 기능을 켜야 빌드 시 프론트엔드 dist 폴더의 내용이 바이너리에 내장됩니다.
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
-tauri = { version = "1.5", features = ["api-all"] }
+tauri = { version = "1.8.3", features = ["api-all", "devtools"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.36", features = ["full"] }

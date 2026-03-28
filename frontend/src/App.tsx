@@ -1,84 +1,72 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Search, Grid, List, Activity, Settings, 
-  Terminal as TerminalIcon, ChevronDown, 
-  Bell, Command, Box, Monitor, Minus, Plus, Zap,
-  Layers, Shield, HardDrive, Cpu, Network, FileCode
+  Box, Grid, Activity, Shield, Cpu, Zap, Layout, Terminal as TerminalIcon, 
+  Settings, ChevronDown, Command, Search, Bell, Layers, FileCode, Plus, Minus
 } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
-import PodsPage from './pages/PodsPage';
-import ResourcesPage from './pages/ResourcesPage';
-import Terminal from './components/Terminal';
-import ResourceDetail from './components/ResourceDetail';
-import EventsViewer from './components/EventsViewer';
 import { invoke } from '@tauri-apps/api/tauri';
+import { listen } from '@tauri-apps/api/event';
+import ResourcesPage from './pages/ResourcesPage';
+import ResourceDetail from './components/ResourceDetail';
+import Terminal from './components/Terminal';
+import EventsViewer from './components/EventsViewer';
 import { Toaster } from 'sonner';
-
-export interface TerminalSession {
-  id: string;
-  podId: string;
-  type: 'exec' | 'logs';
-}
 
 export interface ResourceDefinition {
   label: string;
   kind: string;
   group: string;
   version: string;
-  icon: any;
+  icon: React.ReactNode;
 }
 
 const RESOURCES: Record<string, ResourceDefinition> = {
-  pods: { label: 'Pods', kind: 'Pod', group: '', version: 'v1', icon: <List size={20} /> },
+  pods: { label: 'Pods', kind: 'Pod', group: '', version: 'v1', icon: <Box size={20} /> },
   deployments: { label: 'Deployments', kind: 'Deployment', group: 'apps', version: 'v1', icon: <Activity size={20} /> },
   statefulsets: { label: 'StatefulSets', kind: 'StatefulSet', group: 'apps', version: 'v1', icon: <Layers size={20} /> },
+  jobs: { label: 'Jobs', kind: 'Job', group: 'batch', version: 'v1', icon: <Box size={20} /> },
+  cronjobs: { label: 'CronJobs', kind: 'CronJob', group: 'batch', version: 'v1', icon: <Zap size={20} /> },
   services: { label: 'Services', kind: 'Service', group: '', version: 'v1', icon: <TerminalIcon size={20} /> },
-  ingresses: { label: 'Ingresses', kind: 'Ingress', group: 'networking.k8s.io', version: 'v1', icon: <Network size={20} /> },
   configmaps: { label: 'ConfigMaps', kind: 'ConfigMap', group: '', version: 'v1', icon: <FileCode size={20} /> },
   secrets: { label: 'Secrets', kind: 'Secret', group: '', version: 'v1', icon: <Shield size={20} /> },
   nodes: { label: 'Nodes', kind: 'Node', group: '', version: 'v1', icon: <Cpu size={20} /> },
-  pvs: { label: 'Volumes', kind: 'PersistentVolume', group: '', version: 'v1', icon: <HardDrive size={20} /> },
 };
 
-const App = () => {
+const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('pods');
-  const [namespaces, setNamespaces] = useState<string[]>(['default']);
   const [selectedNamespace, setSelectedNamespace] = useState('default');
+  const [namespaces, setNamespaces] = useState<string[]>(['default']);
   const [isNsOpen, setIsNsOpen] = useState(false);
-  const [uiScale, setUiScale] = useState(1.0);
-  
-  const [terminalSession, setTerminalSession] = useState<{podId: string, type: 'exec' | 'logs'} | null>(null);
   const [selectedResource, setSelectedResource] = useState<{name: string, definition: ResourceDefinition} | null>(null);
-  
-  // 삭제 진행 중인 리소스 목록 추적
-  const [deletingResources, setDeletingResources] = useState<string[]>([]);
-
-  // 리프레시 토글
-  const [refreshKey, setRefreshKey] = useState(0);
-  const triggerRefresh = () => {
-    setRefreshKey(prev => prev + 1);
-    setDeletingResources([]);
-  };
-
-  const markAsDeleting = (name: string) => {
-    setDeletingResources(prev => [...prev, name]);
-  };
+  const [terminalSession, setTerminalSession] = useState<{podId: string, type: 'exec' | 'logs', container?: string} | null>(null);
+  const [deletingResources, setDeletingResources] = useState<Set<string>>(new Set());
+  const [uiScale, setUiScale] = useState(1.0);
 
   useEffect(() => {
-    const fetchNamespaces = async () => {
-      try {
-        const data = await invoke<string[]>('get_namespaces');
-        setNamespaces(data);
-      } catch (err) {
-        setNamespaces(['default', 'kube-system', 'prod', 'staging', 'development']);
-      }
-    };
-    fetchNamespaces();
+    // [K8s Diagnostic] 연결 정보 출력
+    invoke('get_connection_info')
+      .then((info: any) => {
+        console.log("🌐 [K8s Diagnostic] Connection Info:", info);
+      })
+      .catch(err => {
+        console.error("❌ [K8s Diagnostic] Failed to get connection info:", err);
+      });
+
+    invoke<string[]>('get_namespaces')
+      .then(setNamespaces)
+      .catch(err => console.error("Failed to fetch namespaces:", err));
+
+    const unlisten = listen('event-batch', (event: any) => {
+      // Global event batch handler if needed
+    });
+    return () => { unlisten.then(f => f()); };
   }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${uiScale * 16}px`;
   }, [uiScale]);
+
+  const deletingArray = Array.from(deletingResources);
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
@@ -147,96 +135,59 @@ const App = () => {
                   <button onClick={() => setUiScale(s => Math.min(1.5, s + 0.1))} className="p-1 hover:bg-white/5 rounded-md"><Plus size={12}/></button>
                </div>
             </div>
-            <button className="relative p-2.5 bg-secondary/50 hover:bg-secondary border border-border rounded-2xl transition-all text-muted-foreground hover:text-foreground">
-              <Bell size={18} />
-              <div className="absolute top-2.5 right-2.5 w-2 h-2 bg-destructive rounded-full border-2 border-background shadow-[0_0_10px_hsl(var(--destructive)/0.5)]" />
-            </button>
+            <div className="w-10 h-10 rounded-2xl bg-secondary/50 border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer relative"><Bell size={20} /><span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-background" /></div>
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-blue-600 border border-white/20 shadow-lg" />
           </div>
         </header>
 
-        <section className="flex-1 overflow-auto p-10 custom-scrollbar relative">
-          {activeTab === 'pods' && (
-            <PodsPage 
-              key={`${selectedNamespace}-${refreshKey}`}
-              namespace={selectedNamespace} 
-              deletingResources={deletingResources}
-              onOpenTerminal={(podId, type) => setTerminalSession({podId, type})} 
-              onViewDetail={(name) => setSelectedResource({name, definition: RESOURCES.pods})}
-            />
-          )}
-          {RESOURCES[activeTab] && activeTab !== 'pods' && (
-            <ResourcesPage 
-              key={`${selectedNamespace}-${refreshKey}`}
-              definition={RESOURCES[activeTab]} 
-              namespace={selectedNamespace} 
-              deletingResources={deletingResources}
-              onViewDetail={(name) => setSelectedResource({name, definition: RESOURCES[activeTab]})}
-            />
-          )}
-          {activeTab === 'settings' && <SettingsView uiScale={uiScale} setUiScale={setUiScale} />}
-          {activeTab === 'overview' && <OverviewMock />}
-          
-          <AnimatePresence>
-            {terminalSession && <Terminal podId={terminalSession.podId} type={terminalSession.type} onClose={() => setTerminalSession(null)} />}
-          </AnimatePresence>
+        <div className="flex-1 overflow-auto custom-scrollbar p-10 relative">
+          <ResourcesPage 
+            definition={RESOURCES[activeTab] || RESOURCES.pods} 
+            namespace={selectedNamespace} 
+            deletingResources={deletingArray}
+            onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
+          />
+        </div>
 
-          <AnimatePresence>
-            {selectedResource && (
-              <ResourceDetail 
-                resource={selectedResource}
-                namespace={selectedNamespace}
-                onClose={() => setSelectedResource(null)}
-                onUpdated={triggerRefresh}
-                onDeleted={triggerRefresh}
-                onDeleteStart={() => markAsDeleting(selectedResource.name)}
-              />
-            )}
-          </AnimatePresence>
-        </section>
-
-        <EventsViewer />
+        <EventsViewer namespace={selectedNamespace} />
       </main>
+
+      <AnimatePresence>
+        {selectedResource && (
+          <ResourceDetail 
+            resource={selectedResource} 
+            namespace={selectedNamespace} 
+            onClose={() => setSelectedResource(null)}
+            onUpdated={() => {}}
+            onDeleteStart={() => setDeletingResources(prev => new Set(prev).add(selectedResource.name))}
+            onDeleted={() => {
+              setDeletingResources(prev => {
+                const next = new Set(prev);
+                next.delete(selectedResource.name);
+                return next;
+              });
+              setSelectedResource(null);
+            }}
+            onOpenTerminal={(podId, type, container) => setTerminalSession({ podId, type, container })}
+          />
+        )}
+      </AnimatePresence>
+
+      {terminalSession && (
+        <Terminal 
+          session={terminalSession} 
+          onClose={() => setTerminalSession(null)} 
+        />
+      )}
     </div>
   );
 };
 
-const SidebarItem = ({ icon, label, active, onClick }: { icon: any, label: string, active: boolean, onClick: () => void }) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 group relative ${active ? 'bg-primary/10 text-primary shadow-[inset_0_0_20px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}`}>
-    {active && <div className="absolute left-[-16px] w-2 h-8 bg-primary rounded-r-full shadow-[5px_0_20px_hsl(var(--primary)/0.6)]" />}
-    <div className={`transition-transform duration-300 ${active ? 'scale-110' : 'group-hover:scale-110'}`}>{icon}</div>
-    <span className="text-sm font-bold tracking-tight opacity-0 group-hover:opacity-100 transition-all duration-300 whitespace-nowrap delay-75">{label}</span>
+const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
+  <button onClick={onClick} className={`w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 group/item ${active ? 'bg-primary/10 text-primary shadow-[inset_0_0_15px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}>
+    <div className={`p-2 rounded-xl transition-all duration-300 ${active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-transparent group-hover/item:bg-white/5'}`}>{icon}</div>
+    <span className="text-sm font-bold tracking-tight opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100 whitespace-nowrap">{label}</span>
   </button>
-);
-
-const SettingsView = ({ uiScale, setUiScale }: any) => (
-  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 text-foreground">
-    <h1 className="text-4xl font-black tracking-tighter uppercase italic">Control Panel</h1>
-    <div className="glass-card rounded-3xl p-8 max-w-xl space-y-6">
-      <div className="flex items-center gap-3 text-primary">
-        <Monitor size={20} />
-        <h2 className="font-bold uppercase tracking-widest text-sm">Visual Calibration</h2>
-      </div>
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <span className="text-sm font-medium text-muted-foreground">Interface Scaling</span>
-          <span className="text-sm font-mono font-bold text-primary">{Math.round(uiScale * 100)}%</span>
-        </div>
-        <input type="range" min="0.8" max="1.5" step="0.05" value={uiScale} onChange={(e) => setUiScale(parseFloat(e.target.value))} className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary" />
-      </div>
-    </div>
-  </div>
-);
-
-const OverviewMock = () => (
-  <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-6">
-    <div className="w-24 h-24 rounded-[2.5rem] bg-primary/5 border border-primary/10 flex items-center justify-center animate-pulse shadow-[0_0_50px_hsl(var(--primary)/0.05)]">
-      <Zap size={40} className="text-primary/40" />
-    </div>
-    <div className="text-center space-y-2">
-      <h2 className="text-2xl font-black text-foreground tracking-tighter uppercase italic">System Engaged</h2>
-      <p className="text-sm max-w-xs mx-auto text-muted-foreground leading-relaxed font-medium">Palantir core modules are active. Select a resource to begin telemetry monitoring.</p>
-    </div>
-  </div>
 );
 
 export default App;

@@ -1,6 +1,66 @@
 use palantir_core::{K8sClient, resources::{pod, namespace, deployment, service, generic}, models::{PodInfo, ResourceInfo}};
 use kube::core::GroupVersionKind;
 
+// 파드에 디버깅용 Ephemeral Container 주입 커맨드
+#[tauri::command]
+pub async fn inject_debug_container(
+    namespace: String,
+    pod_name: String,
+    image: String,
+) -> Result<String, String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let container_name = format!("palantir-debug-{}", &uuid::Uuid::new_v4().to_string()[..5]);
+    
+    palantir_core::resources::pod::add_ephemeral_container(
+        &client, &namespace, &pod_name, &image, &container_name
+    ).await.map_err(|e| e.to_string())?;
+    
+    Ok(container_name)
+}
+
+// 정적 로그 조회 커맨드 (종료된 파드용)
+#[tauri::command]
+pub async fn get_static_logs(
+    namespace: String,
+    pod_name: String,
+    container_name: Option<String>,
+) -> Result<String, String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    palantir_core::actions::logs::read_static_logs(&client, &namespace, &pod_name, container_name.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// 특정 파드 상세 조회 (임시 컨테이너 목록 포함)
+// 연결 상태 진단 커맨드
+#[tauri::command]
+pub async fn get_connection_info() -> Result<palantir_core::client::ConnectionInfo, String> {
+    palantir_core::client::K8sClient::get_info().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_pod_detail(
+    namespace: String,
+    pod_name: String,
+) -> Result<PodInfo, String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    let pods = pod::list_pods(&client, Some(&namespace)).await.map_err(|e| e.to_string())?;
+    pods.into_iter().find(|p| p.name == pod_name).ok_or_else(|| "Pod not found".to_string())
+}
+
+// 임시 컨테이너 종료
+#[tauri::command]
+pub async fn terminate_debug_container(
+    namespace: String,
+    pod_name: String,
+    container_name: String,
+) -> Result<(), String> {
+    let client = K8sClient::new().await.map_err(|e| e.to_string())?;
+    pod::terminate_ephemeral_container(&client, &namespace, &pod_name, &container_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_pods(namespace: Option<String>) -> Result<Vec<PodInfo>, String> {
     let client = K8sClient::new().await.map_err(|e| e.to_string())?;

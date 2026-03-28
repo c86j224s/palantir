@@ -1,145 +1,129 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { listen, emit } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion } from 'framer-motion';
 import { X, Terminal as TerminalIcon, Activity } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
-  podId: string;
-  type: 'exec' | 'logs';
+  session: {
+    podId: string;
+    type: 'exec' | 'logs';
+    container?: string;
+  } | null;
   onClose: () => void;
 }
 
-const Terminal: React.FC<TerminalProps> = ({ podId, type, onClose }) => {
+const Terminal: React.FC<TerminalProps> = ({ session, onClose }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const [isTerminated, setIsTerminated] = useState(false);
 
   useEffect(() => {
-    if (!terminalRef.current) return;
+    // 세션이 없으면 아무것도 하지 않음 (Hooks는 이미 위에서 선언됨)
+    if (!session || !terminalRef.current) return;
 
-    // xterm.js 초기화
-    const term = new XTerm({
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#ededed',
-        cursor: '#3b82f6',
-        selectionBackground: 'rgba(59, 130, 246, 0.3)',
-      },
-      fontFamily: '"JetBrains Mono", monospace',
-      fontSize: 14,
-      cursorBlink: true,
-      disableStdin: type === 'logs',
-    });
+    const initTerminal = async () => {
+      const term = new XTerm({
+        theme: {
+          background: '#0a0a0a',
+          foreground: '#3b82f6',
+          cursor: '#3b82f6',
+          selectionBackground: 'rgba(59, 130, 246, 0.3)',
+        },
+        fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+        fontSize: 13,
+        letterSpacing: 0.5,
+        cursorBlink: true,
+      });
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    fitAddon.fit();
-    xtermRef.current = term;
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(terminalRef.current!);
+      fitAddon.fit();
+      xtermRef.current = term;
 
-    term.writeln(`\x1b[1;34m[Palantir]\x1b[0m Establishing connection to ${podId}...`);
-
-    let unlistenOutput: () => void;
-    let unlistenClosed: () => void;
-    let onDataDisposable: any;
-
-    const startSession = async () => {
       try {
-        const [namespace, pod_name] = podId.split('/');
-        if (type === 'exec') {
-          const sid = await invoke<string>('start_exec', { namespace, podName: pod_name, containerName: null });
-          sessionIdRef.current = sid;
+        const { podId, type, container } = session;
+        const [namespace, name] = podId.split('/');
+        
+        const cmd = type === 'exec' ? 'start_exec' : 'start_logs';
+        const sessionId: string = await invoke(cmd, { namespace, podName: name, containerName: container || null });
+        sessionIdRef.current = sessionId;
 
-          unlistenOutput = await listen<number[]>(`exec-output:${sid}`, (event) => {
-            if (Array.isArray(event.payload)) term.write(new Uint8Array(event.payload));
-          });
+        term.onData((data) => {
+          if (type === 'exec') {
+            invoke('write_to_session', { sessionId, data }).catch(console.error);
+          }
+        });
 
-          unlistenClosed = await listen<string>(`session-closed:${sid}`, (event) => {
-            if (event.payload === "normal") {
-              term.writeln('\r\n\x1b[1;32m[System]\x1b[0m Session closed. Exiting...');
-              setTimeout(onClose, 800);
-            } else {
-              setIsTerminated(true);
-              term.writeln(`\r\n\x1b[1;31m[Terminated]\x1b[0m ${event.payload}`);
-            }
-          });
+        const unlisten = await listen(`session-data-${sessionId}`, (event: any) => {
+          term.write(event.payload);
+        });
 
-          onDataDisposable = term.onData((data) => {
-            if (!isTerminated) emit(`exec-input:${sid}`, data);
-          });
+        const unlistenExit = await listen(`session-exit-${sessionId}`, (event: any) => {
+          term.write('\r\n\x1b[31m[Session Terminated]\x1b[0m\r\n');
+          setIsTerminated(true);
+        });
 
-          term.writeln(`\x1b[1;32m[System]\x1b[0m Session active.\r\n`);
-          emit(`exec-input:${sid}`, "\r");
-        } else {
-          await invoke('start_logs', { namespace, podName: pod_name, containerName: null });
-          unlistenOutput = await listen<string>(`log-line:${podId}`, (event) => {
-            term.writeln(event.payload);
-          });
-        }
+        return () => {
+          unlisten();
+          unlistenExit();
+          term.dispose();
+          if (sessionIdRef.current) {
+            invoke('stop_session', { sessionId: sessionIdRef.current }).catch(console.error);
+          }
+        };
       } catch (err) {
-        term.writeln(`\r\n\x1b[1;31m[Error]\x1b[0m Failed to initialize: ${err}`);
+        term.write(`\r\n\x1b[31mError connecting to session: ${err}\x1b[0m\r\n`);
       }
     };
 
-    startSession();
+    const cleanup = initTerminal();
+    return () => { cleanup.then(f => f && f()); };
+  }, [session]);
 
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (unlistenOutput) unlistenOutput();
-      if (unlistenClosed) unlistenClosed();
-      if (onDataDisposable) onDataDisposable.dispose();
-      
-      if (sessionIdRef.current) {
-        invoke('stop_session', { sessionId: sessionIdRef.current }).catch(console.error);
-      }
-      term.dispose();
-    };
-  }, [podId, type]);
+  if (!session) return null;
 
   return (
     <motion.div 
       initial={{ opacity: 0, scale: 0.95, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, y: 20 }}
-      className="absolute inset-0 z-[100] flex items-center justify-center p-12 bg-background/60 backdrop-blur-md"
+      className="fixed inset-x-10 bottom-10 h-[400px] bg-black/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl z-[200] flex flex-col overflow-hidden ring-1 ring-white/5"
     >
-      <div className="w-full h-full glass-card rounded-[2.5rem] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.5)] border-white/10 ring-1 ring-white/5">
-        {/* Terminal Header */}
-        <div className="h-14 flex items-center justify-between px-8 bg-card/50 border-b border-white/5">
-          <div className="flex items-center gap-4">
-            <div className="flex gap-2">
-              <div className="w-3.5 h-3.5 rounded-full bg-red-500/20 border border-red-500/50 cursor-pointer hover:bg-red-500 transition-colors" onClick={onClose} />
-              <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/10 border border-yellow-500/30" />
-              <div className="w-3.5 h-3.5 rounded-full bg-green-500/10 border border-green-500/30" />
-            </div>
-            <div className="h-4 w-[1px] bg-white/10 mx-2" />
-            <div className="flex items-center gap-2">
-              {type === 'exec' ? <TerminalIcon size={16} className="text-primary" /> : <Activity size={16} className="text-green-500" />}
-              <span className="text-xs font-mono font-bold text-gray-400 uppercase tracking-widest">{podId}</span>
-            </div>
+      <div className="h-14 flex items-center justify-between px-6 border-b border-white/5 bg-white/[0.02]">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+            <TerminalIcon size={16} className="text-primary" />
           </div>
-          
-          <div className="flex items-center gap-4">
-            {isTerminated && <span className="text-[10px] text-red-500 font-bold animate-pulse uppercase tracking-tighter">Disconnected</span>}
-            <div className="px-3 py-1 rounded-full bg-primary/10 border border-primary/20">
-              <span className="text-[10px] uppercase font-black text-primary tracking-[0.2em]">{type}</span>
-            </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-primary uppercase tracking-widest">
+              {session.type === 'exec' ? 'Interactive Shell' : 'Stream Logs'}
+            </span>
+            <span className="text-xs font-bold text-muted-foreground truncate max-w-[400px]">
+              Session: {session.podId} {session.container ? `(${session.container})` : ''}
+            </span>
           </div>
         </div>
-
-        {/* Terminal Body */}
-        <div className="flex-1 p-6 overflow-hidden">
-          <div ref={terminalRef} className="w-full h-full" />
+        <div className="flex items-center gap-2">
+          {isTerminated && <span className="text-[9px] font-black text-red-500 uppercase bg-red-500/10 px-2 py-1 rounded-md animate-pulse">Terminated</span>}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-500 uppercase tracking-tight">Active</span>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-white/5 rounded-xl text-muted-foreground hover:text-red-500 transition-colors"
+          >
+            <X size={18} />
+          </button>
         </div>
       </div>
+      <div ref={terminalRef} className="flex-1 p-4 overflow-hidden" />
     </motion.div>
   );
 };

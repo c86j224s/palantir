@@ -31,6 +31,7 @@ test('ResourceDetail fetches and displays YAML on mount', async () => {
       onUpdated={vi.fn()}
       onDeleted={vi.fn()}
       onDeleteStart={vi.fn()}
+      onOpenTerminal={vi.fn()}
     />
   );
 

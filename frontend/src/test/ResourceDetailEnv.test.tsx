@@ -44,6 +44,7 @@ spec:
       onUpdated={vi.fn()}
       onDeleted={vi.fn()}
       onDeleteStart={vi.fn()}
+      onOpenTerminal={vi.fn()}
     />
   );
 
@@ -79,6 +80,7 @@ test('ResourceDetail does not show Environment tab for non-Pod resources', async
       onUpdated={vi.fn()}
       onDeleted={vi.fn()}
       onDeleteStart={vi.fn()}
+      onOpenTerminal={vi.fn()}
     />
   );
 
