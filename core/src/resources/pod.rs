@@ -1,8 +1,7 @@
-use kube::{Api, api::{ListParams, Patch, PatchParams, AttachedProcess, AttachParams}};
+use kube::{Api, api::{ListParams, Patch, PatchParams, AttachParams}};
 use k8s_openapi::api::core::v1::Pod;
 use crate::models::{PodInfo, EphemeralContainerInfo};
 use crate::client::K8sClient;
-use crate::actions::exec;
 
 pub async fn list_pods(client: &K8sClient, namespace: Option<&str>) -> Result<Vec<PodInfo>, kube::Error> {
     let namespace = namespace.unwrap_or("default");
@@ -68,7 +67,7 @@ pub async fn add_ephemeral_container(
     let new_container = serde_json::json!({
         "name": container_name,
         "image": image,
-        "command": ["sh", "-c", "sleep 3600"], 
+        "command": ["sh", "-c", "trap 'exit 0' TERM; sleep 3600 & wait"], 
         "stdin": true,
         "tty": true,
         "imagePullPolicy": "Always"
@@ -136,11 +135,17 @@ pub async fn terminate_ephemeral_container(
     };
 
     // exec 실패(컨테이너 이미 종료/Waiting 상태)는 성공으로 처리
-    if let Ok(mut attached) = pods.exec(pod_name, vec!["sh", "-c", "kill 1"], &ap).await {
-        // stdout을 소비하여 명령 완료까지 대기 (즉시 드롭하면 명령이 중단될 수 있음)
-        if let Some(mut stdout) = attached.stdout() {
-            let mut buf = Vec::new();
-            let _ = tokio::io::AsyncReadExt::read_to_end(&mut stdout, &mut buf).await;
+    match pods.exec(pod_name, vec!["sh", "-c", "kill 1"], &ap).await {
+        Ok(mut attached) => {
+            println!("✅ [Backend] Exec command sent to PID 1");
+            // stdout을 소비하여 명령 완료까지 대기 (즉시 드롭하면 명령이 중단될 수 있음)
+            if let Some(mut stdout) = attached.stdout() {
+                let mut buf = Vec::new();
+                let _ = tokio::io::AsyncReadExt::read_to_end(&mut stdout, &mut buf).await;
+            }
+        },
+        Err(e) => {
+            println!("⚠️ [Backend] Exec failed (expected if already terminated): {}", e);
         }
     }
 

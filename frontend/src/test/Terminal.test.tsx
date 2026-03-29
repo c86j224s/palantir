@@ -16,21 +16,27 @@ vi.mock('@tauri-apps/api/tauri', () => ({
 // Mock xterm
 vi.mock('xterm', () => {
   return {
-    Terminal: vi.fn().mockImplementation(() => ({
-      loadAddon: vi.fn(),
-      open: vi.fn(),
-      write: vi.fn(),
-      onData: vi.fn(),
-      dispose: vi.fn(),
-    })),
+    Terminal: vi.fn().mockImplementation(function() {
+      return {
+        loadAddon: vi.fn(),
+        open: vi.fn(),
+        write: vi.fn(),
+        onData: vi.fn(),
+        dispose: vi.fn(),
+      };
+    }),
   };
 });
 
-vi.mock('xterm-addon-fit', () => ({
-  FitAddon: vi.fn().mockImplementation(() => ({
-    fit: vi.fn(),
-  })),
-}));
+vi.mock('xterm-addon-fit', () => {
+  return {
+    FitAddon: vi.fn().mockImplementation(function() {
+      return {
+        fit: vi.fn(),
+      };
+    }),
+  };
+});
 
 describe('Terminal Component', () => {
   const session = {

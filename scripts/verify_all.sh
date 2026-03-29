@@ -21,7 +21,7 @@ echo "🦀 [2/6] Verifying Backend Compilation..."
 cargo check -p palantir-app > /dev/null 2>&1
 
 echo "🧪 [3/6] Running Backend Pitfall Defense Tests..."
-(cd core && cargo test --test resource_lifecycle_it --test config_pitfalls_it --test resource_pitfalls_it --test event_pitfalls_it > /dev/null 2>&1)
+(cd core && cargo test --test resource_lifecycle_it --test config_pitfalls_it --test resource_pitfalls_it --test event_pitfalls_it --test ephemeral_it > /dev/null 2>&1)
 echo "✅ Backend pitfall tests passed."
 
 echo "⚛️ [4/6] Verifying Frontend (Vite Build)..."
