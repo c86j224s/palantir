@@ -45,6 +45,45 @@ const App: React.FC = () => {
   const [sidebarPinned, setSidebarPinned] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
 
+  // Resizing States
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [detailWidth, setDetailWidth] = useState(768); // 48rem
+  const [eventsHeight, setEventsHeight] = useState(320);
+  const [isResizing, setIsResizing] = useState<'sidebar' | 'detail' | 'events' | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      if (isResizing === 'sidebar') {
+        const newWidth = Math.max(200, Math.min(500, e.clientX));
+        setSidebarWidth(newWidth);
+      } else if (isResizing === 'detail') {
+        const newWidth = Math.max(400, Math.min(1200, window.innerWidth - e.clientX));
+        setDetailWidth(newWidth);
+      } else if (isResizing === 'events') {
+        const newHeight = Math.max(150, Math.min(800, window.innerHeight - e.clientY));
+        setEventsHeight(newHeight);
+      }
+    };
+
+    const handleMouseUp = () => setIsResizing(null);
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = isResizing === 'events' ? 'row-resize' : 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
   useEffect(() => {
     // [K8s Diagnostic] 연결 정보 출력
     invoke('get_connection_info')
@@ -72,136 +111,164 @@ const App: React.FC = () => {
   const deletingArray = Array.from(deletingResources);
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans">
       <Toaster position="top-right" theme="dark" richColors closeButton />
       <div className="noise" />
-      
-      <aside className={`${sidebarPinned ? 'w-64' : 'w-[72px] hover:w-64'} border-r border-border flex flex-col p-4 bg-card/80 backdrop-blur-3xl transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] group z-50 shrink-0`}>
-        <div className="flex items-center gap-4 py-6 mb-8 px-1">
-          <div className="w-10 h-10 min-w-[40px] bg-primary rounded-2xl flex items-center justify-center font-bold text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.4)] ring-1 ring-white/20 transition-transform duration-500 group-hover:rotate-[360deg]">
-            <Box size={20} />
-          </div>
-          <span className={`text-xl font-black tracking-tighter transition-all duration-300 delay-100 uppercase ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>PALANTIR</span>
-        </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-2">
-          <SidebarItem pinned={sidebarPinned} icon={<Grid size={20} />} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-          <div className={`py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>Workloads</div>
-          {Object.entries(RESOURCES).map(([id, def]) => (
-            <SidebarItem pinned={sidebarPinned} key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
-          ))}
-        </nav>
-
-        <div className="pt-4 border-t border-border mt-auto space-y-1">
-          {/* 사이드바 핀 고정 토글 */}
-          <button
-            onClick={() => setSidebarPinned(v => !v)}
-            className="w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 text-muted-foreground hover:bg-secondary/50 hover:text-primary"
-            title={sidebarPinned ? '사이드바 자동 축소 해제' : '사이드바 고정 열기'}
-          >
-            <div className="p-2 rounded-xl shrink-0">
-              {sidebarPinned ? <PinOff size={20} /> : <Pin size={20} />}
-            </div>
-            <span className={`text-sm font-bold tracking-tight whitespace-nowrap transition-opacity duration-300 delay-100 ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-              {sidebarPinned ? 'Unpin' : 'Pin Sidebar'}
-            </span>
-          </button>
-          <SidebarItem pinned={sidebarPinned} icon={<Settings size={20} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden relative">
-        <header className="h-20 flex items-center justify-between px-10 relative z-40 bg-background/40 backdrop-blur-md border-b border-border/50">
-          <div className="flex items-center gap-8">
-            <div className="relative group">
-              <button onClick={() => setIsNsOpen(!isNsOpen)} className="flex items-center gap-3 bg-secondary/50 hover:bg-secondary px-5 py-2.5 rounded-2xl border border-border transition-all active:scale-95 shadow-sm">
-                <div className="flex flex-col items-start leading-tight">
-                  <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-0.5">Namespace</span>
-                  <span className="text-sm font-bold text-primary tracking-tight">{selectedNamespace}</span>
-                </div>
-                <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-300 ${isNsOpen ? 'rotate-180' : ''}`} />
-              </button>
-              <AnimatePresence>
-                {isNsOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setIsNsOpen(false)} />
-                    <motion.div initial={{ opacity: 0, scale: 0.95, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -10 }} className="absolute top-full left-0 mt-3 w-64 bg-popover border border-border rounded-3xl p-3 z-20 shadow-2xl ring-1 ring-white/10">
-                      <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 border-b border-border">Select Context</div>
-                      <div className="max-h-64 overflow-auto custom-scrollbar space-y-1">
-                        {namespaces.map(ns => (
-                          <button key={ns} onClick={() => { setSelectedNamespace(ns); setIsNsOpen(false); }} className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all ${selectedNamespace === ns ? 'bg-primary/10 text-primary font-bold shadow-[inset_0_0_10px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>{ns}</button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-            <div className="flex items-center gap-4 bg-secondary/30 px-5 py-2.5 rounded-2xl border border-border w-full max-w-xl focus-within:ring-2 ring-primary/20 transition-all group shadow-inner">
-              <Command size={18} className="text-muted-foreground group-focus-within:text-primary transition-colors" />
-              <input type="text" placeholder="Search cluster resources..." className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium" />
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4 px-4 py-2 rounded-2xl bg-secondary/30 border border-border">
-               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">UI Scale</span>
-               <div className="flex items-center gap-2">
-                  <button onClick={() => setUiScale(s => Math.max(0.8, s - 0.1))} className="p-1 hover:bg-white/5 rounded-md"><Minus size={12}/></button>
-                  <span className="text-xs font-mono font-bold text-primary w-8 text-center">{Math.round(uiScale * 100)}%</span>
-                  <button onClick={() => setUiScale(s => Math.min(1.5, s + 0.1))} className="p-1 hover:bg-white/5 rounded-md"><Plus size={12}/></button>
-               </div>
-            </div>
-            <div className="w-10 h-10 rounded-2xl bg-secondary/50 border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer relative"><Bell size={20} /><span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-background" /></div>
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-blue-600 border border-white/20 shadow-lg" />
-          </div>
-        </header>
-
-        <div
-          className="flex-1 overflow-auto custom-scrollbar relative"
-          style={{
-            padding: '2.5rem',
-            paddingRight: selectedResource ? 'calc(48rem + 2.5rem)' : '2.5rem',
-            paddingBottom: eventsOpen ? 'calc(320px + 2.5rem)' : 'calc(40px + 2.5rem)',
-            transition: 'padding-right 0.3s ease, padding-bottom 0.3s ease',
-          }}
+      {/* 상단 영역: 사이드바 + 메인 + 디테일 패널 (수평 배치) */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        
+        {/* 1. 사이드바 (좌측 고정) */}
+        <aside 
+          style={{ width: sidebarPinned ? sidebarWidth : 80 }}
+          className={`border-r border-border flex flex-col p-4 bg-card/80 backdrop-blur-3xl transition-[width] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] group z-50 shrink-0`}
         >
-          <ResourcesPage
-            definition={RESOURCES[activeTab] || RESOURCES.pods}
-            namespace={selectedNamespace}
-            deletingResources={deletingArray}
-            onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
-          />
-        </div>
+          <div className="flex items-center gap-4 py-6 mb-8 px-1">
+            <div className="w-10 h-10 min-w-[40px] bg-primary rounded-2xl flex items-center justify-center font-bold text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.4)] ring-1 ring-white/20 transition-transform duration-500 group-hover:rotate-[360deg]">
+              <Box size={20} />
+            </div>
+            <span className={`text-xl font-black tracking-tighter transition-all duration-300 delay-100 uppercase ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>PALANTIR</span>
+          </div>
 
-        <EventsViewer
-          namespace={selectedNamespace}
-          sidebarWidth={sidebarPinned ? 256 : 72}
-          isOpen={eventsOpen}
-          onToggle={() => setEventsOpen(v => !v)}
-        />
-      </main>
+          <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-2">
+            <SidebarItem pinned={sidebarPinned} icon={<Grid size={20} />} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+            <div className={`py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>Workloads</div>
+            {Object.entries(RESOURCES).map(([id, def]) => (
+              <SidebarItem pinned={sidebarPinned} key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
+            ))}
+          </nav>
 
-      <AnimatePresence>
-        {selectedResource && (
-          <ResourceDetail 
-            resource={selectedResource} 
-            namespace={selectedNamespace} 
-            onClose={() => setSelectedResource(null)}
-            onUpdated={() => {}}
-            onDeleteStart={() => setDeletingResources(prev => new Set(prev).add(selectedResource.name))}
-            onDeleted={() => {
-              setDeletingResources(prev => {
-                const next = new Set(prev);
-                next.delete(selectedResource.name);
-                return next;
-              });
-              setSelectedResource(null);
-            }}
-            onOpenTerminal={(podId, type, container) => setTerminalSession({ podId, type, container })}
+          <div className="pt-4 border-t border-border mt-auto space-y-1">
+            <button
+              onClick={() => setSidebarPinned(v => !v)}
+              className="w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 text-muted-foreground hover:bg-secondary/50 hover:text-primary"
+              title={sidebarPinned ? '사이드바 자동 축소 해제' : '사이드바 고정 열기'}
+            >
+              <div className="p-2 rounded-xl shrink-0">
+                {sidebarPinned ? <PinOff size={20} /> : <Pin size={20} />}
+              </div>
+              <span className={`text-sm font-bold tracking-tight whitespace-nowrap transition-opacity duration-300 delay-100 ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                {sidebarPinned ? 'Unpin' : 'Pin Sidebar'}
+              </span>
+            </button>
+            <SidebarItem pinned={sidebarPinned} icon={<Settings size={20} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          </div>
+        </aside>
+
+        {/* 사이드바 리사이저 */}
+        {sidebarPinned && (
+          <div 
+            onMouseDown={() => setIsResizing('sidebar')}
+            className={`w-1.5 h-full cursor-col-resize transition-colors hover:bg-primary/20 z-[60] shrink-0 -ml-0.75 ${isResizing === 'sidebar' ? 'bg-primary/40' : ''}`} 
           />
         )}
-      </AnimatePresence>
 
+        {/* 2. 중앙 메인 컨텐츠 영역 (헤더 + 콘텐츠) */}
+        <div className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden relative">
+          <header className="h-20 flex items-center justify-between px-10 relative z-40 bg-background/40 backdrop-blur-md border-b border-border/50 shrink-0">
+            <div className="flex items-center gap-8 leading-none">
+              <div className="relative group">
+                <button onClick={() => setIsNsOpen(!isNsOpen)} className="flex items-center gap-3 bg-secondary/50 hover:bg-secondary px-5 py-2.5 rounded-2xl border border-border transition-all active:scale-95 shadow-sm">
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-0.5">Namespace</span>
+                    <span className="text-sm font-bold text-primary tracking-tight">{selectedNamespace}</span>
+                  </div>
+                  <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-300 ${isNsOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {isNsOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIsNsOpen(false)} />
+                      <motion.div initial={{ opacity: 0, scale: 0.95, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -10 }} className="absolute top-full left-0 mt-3 w-64 bg-popover border border-border rounded-3xl p-3 z-20 shadow-2xl ring-1 ring-white/10">
+                        <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 border-b border-border">Select Context</div>
+                        <div className="max-h-64 overflow-auto custom-scrollbar space-y-1">
+                          {namespaces.map(ns => (
+                            <button key={ns} onClick={() => { setSelectedNamespace(ns); setIsNsOpen(false); }} className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all ${selectedNamespace === ns ? 'bg-primary/10 text-primary font-bold shadow-[inset_0_0_10px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>{ns}</button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="flex items-center gap-4 bg-secondary/30 px-5 py-2.5 rounded-2xl border border-border w-full max-w-xl focus-within:ring-2 ring-primary/20 transition-all group shadow-inner">
+                <Command size={18} className="text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <input type="text" placeholder="Search cluster resources..." className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium" />
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4 px-4 py-2 rounded-2xl bg-secondary/30 border border-border leading-none">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">UI Scale</span>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setUiScale(s => Math.max(0.8, s - 0.1))} className="p-1 hover:bg-white/5 rounded-md"><Minus size={12}/></button>
+                    <span className="text-xs font-mono font-bold text-primary w-8 text-center">{Math.round(uiScale * 100)}%</span>
+                    <button onClick={() => setUiScale(s => Math.min(1.5, s + 0.1))} className="p-1 hover:bg-white/5 rounded-md"><Plus size={12}/></button>
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-secondary/50 border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer relative"><Bell size={20} /><span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-background" /></div>
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-blue-600 border border-white/20 shadow-lg" />
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-auto custom-scrollbar relative p-10 bg-transparent">
+            <ResourcesPage
+              definition={RESOURCES[activeTab] || RESOURCES.pods}
+              namespace={selectedNamespace}
+              deletingResources={deletingArray}
+              onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
+            />
+          </main>
+        </div>
+
+        {/* 디테일 패널 리사이저 */}
+        {selectedResource && (
+          <div 
+            onMouseDown={() => setIsResizing('detail')}
+            className={`w-1.5 h-full cursor-col-resize transition-colors hover:bg-primary/20 z-[160] shrink-0 -mr-0.75 ${isResizing === 'detail' ? 'bg-primary/40' : ''}`} 
+          />
+        )}
+
+        {/* 3. 우측 리소스 디테일 영역 (조건부 렌더링) */}
+        <AnimatePresence mode="popLayout">
+          {selectedResource && (
+            <ResourceDetail 
+              width={detailWidth}
+              resource={selectedResource} 
+              namespace={selectedNamespace} 
+              onClose={() => setSelectedResource(null)}
+              onUpdated={() => {}}
+              onDeleteStart={() => setDeletingResources(prev => new Set(prev).add(selectedResource.name))}
+              onDeleted={() => {
+                setDeletingResources(prev => {
+                  const next = new Set(prev);
+                  next.delete(selectedResource.name);
+                  return next;
+                });
+                setSelectedResource(null);
+              }}
+              onOpenTerminal={(podId, type, container) => setTerminalSession({ podId, type, container })}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* 이벤트 뷰어 리사이저 */}
+      {eventsOpen && (
+        <div 
+          onMouseDown={() => setIsResizing('events')}
+          className={`h-1.5 w-full cursor-row-resize transition-colors hover:bg-primary/20 z-[70] shrink-0 -mb-0.75 ${isResizing === 'events' ? 'bg-primary/40' : ''}`} 
+        />
+      )}
+
+      {/* 하단 영역: 이벤트 뷰어 (전체 가로폭 차지) */}
+      <EventsViewer
+        height={eventsHeight}
+        namespace={selectedNamespace}
+        isOpen={eventsOpen}
+        onToggle={() => setEventsOpen(v => !v)}
+      />
+
+      {/* 오버레이 요소 (터미널) */}
       {terminalSession && (
         <Terminal 
           session={terminalSession} 

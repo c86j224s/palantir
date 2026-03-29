@@ -31,7 +31,7 @@ test('ResourceDetail shows Debug Session tab only for Pods', async () => {
   vi.mocked(tauri.invoke).mockResolvedValue('kind: Pod');
 
   const { rerender } = render(
-    <ResourceDetail resource={podResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
+    <ResourceDetail resource={podResource} namespace="default" width={768} onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
   );
 
   await waitFor(() => {
@@ -44,7 +44,7 @@ test('ResourceDetail shows Debug Session tab only for Pods', async () => {
     definition: { label: 'Services', kind: 'Service', group: '', version: 'v1', icon: null }
   };
   rerender(
-    <ResourceDetail resource={svcResource} namespace="default" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
+    <ResourceDetail resource={svcResource} namespace="default" width={768} onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
   );
 
   await waitFor(() => {
@@ -61,7 +61,7 @@ test('ResourceDetail calls inject_debug_container with correct params', async ()
   vi.mocked(tauri.invoke).mockResolvedValueOnce('palantir-debug-abcde'); // inject command response
 
   render(
-    <ResourceDetail resource={podResource} namespace="debug-ns" onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
+    <ResourceDetail resource={podResource} namespace="debug-ns" width={768} onClose={vi.fn()} onUpdated={vi.fn()} onDeleted={vi.fn()} onDeleteStart={vi.fn()} onOpenTerminal={vi.fn()} />
   );
 
   // Debug 탭 클릭

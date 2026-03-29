@@ -27,6 +27,7 @@ test('ResourceDetail fetches and displays YAML on mount', async () => {
     <ResourceDetail 
       resource={mockResource} 
       namespace="default" 
+      width={768}
       onClose={vi.fn()}
       onUpdated={vi.fn()}
       onDeleted={vi.fn()}

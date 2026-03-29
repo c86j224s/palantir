@@ -22,12 +22,12 @@ interface K8sEvent {
 
 interface Props {
   namespace: string;
-  sidebarWidth: number;
   isOpen: boolean;
   onToggle: () => void;
+  height: number;
 }
 
-const EventsViewer: React.FC<Props> = ({ namespace, sidebarWidth, isOpen, onToggle }) => {
+const EventsViewer: React.FC<Props> = ({ namespace, isOpen, onToggle, height }) => {
   const [events, setEvents] = useState<K8sEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -81,8 +81,8 @@ const EventsViewer: React.FC<Props> = ({ namespace, sidebarWidth, isOpen, onTogg
 
   return (
     <div
-      className={`fixed bottom-0 right-0 z-[60] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isOpen ? 'h-80' : 'h-10'}`}
-      style={{ left: sidebarWidth }}
+      className="relative z-[60] transition-[height] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] shrink-0 overflow-hidden"
+      style={{ height: isOpen ? height : 40 }}
     >
       {/* Handle / Header */}
       <div

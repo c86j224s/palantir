@@ -18,6 +18,7 @@ interface Props {
   onDeleted: () => void;
   onDeleteStart: () => void;
   onOpenTerminal: (podId: string, type: 'exec' | 'logs', container?: string) => void;
+  width: number;
 }
 
 const translateK8sError = (err: string): string => {
@@ -26,7 +27,7 @@ const translateK8sError = (err: string): string => {
   return err;
 };
 
-const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdated, onDeleted, onDeleteStart, onOpenTerminal }) => {
+const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdated, onDeleted, onDeleteStart, onOpenTerminal, width }) => {
   const [yamlStr, setYamlStr] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'yaml' | 'env' | 'debug' | 'logs'>('yaml');
@@ -233,11 +234,13 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
 
   return (
     <motion.div
-      initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed top-0 right-0 bottom-0 w-full max-w-3xl bg-card border-l border-border shadow-2xl z-[150] flex flex-col font-sans"
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{ type: 'spring', damping: 30, stiffness: 250 }}
+      className="relative h-full bg-card border-l border-border shadow-2xl z-[150] flex flex-col font-sans shrink-0 overflow-hidden"
     >
-      <div className="h-20 flex items-center justify-between px-8 border-b border-border bg-background/50 backdrop-blur-md">
+      <div className="h-20 flex items-center justify-between px-8 border-b border-border bg-background/50 backdrop-blur-md shrink-0">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
             <Braces size={20} className="text-primary" />
