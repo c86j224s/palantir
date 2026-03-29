@@ -1,7 +1,13 @@
 #!/bin/bash
 set -e
 
-echo "🔍 [1/6] Checking Essential Files..."
+echo "🔍 [1/7] Purging Zombie Test Resources..."
+for ns in $(kubectl get ns --no-headers -o custom-columns=":metadata.name" | grep palantir-it || true); do
+    kubectl delete ns $ns --force --grace-period=0 --wait=false > /dev/null 2>&1 || true
+done
+echo "✅ Cluster environment sanitized."
+
+echo "🔍 [2/7] Checking Essential Files..."
 FILES=(".gitignore" "Cargo.toml" "package.json" "src-tauri/tauri.conf.json" "frontend/package.json" "frontend/index.html")
 for FILE in "${FILES[@]}"; do
     if [ ! -f "$FILE" ]; then

@@ -1,0 +1,50 @@
+{
+  "general": {
+    "plan": {
+      "modelRouting": true
+    },
+    "sessionRetention": {
+      "enabled": true,
+      "maxAge": "30d",
+      "warningAcknowledged": true
+    },
+    "enableNotifications": true
+  },
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "ui": {
+    "inlineThinkingMode": "full",
+    "showStatusInTitle": true
+  },
+  "experimental": {
+    "enableAgents": true,
+    "parallelExecution": {
+      "enabled": true,
+      "maxConcurrentAgents": 4
+    },
+    "introspectionAgentSettings": {
+      "enabled": true,
+      "model": "gemini-3.1-pro-preview"
+    },
+    "sandbox": {
+      "provider": "bubblewrap",
+      "strict": false
+    }
+  },
+  "chat": {
+    "subagents": {
+      "allowInvocationsFromSubagents": true,
+      "showThoughtProcess": true
+    }
+  },
+  "agents": {
+    "overrides": {
+      "codebase_investigator": {
+        "enabled": true
+      }
+    }
+  }
+}
