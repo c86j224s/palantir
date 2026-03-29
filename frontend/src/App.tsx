@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Box, Grid, Activity, Shield, Cpu, Zap, Layout, Terminal as TerminalIcon, 
-  Settings, ChevronDown, Command, Search, Bell, Layers, FileCode, Plus, Minus
+import {
+  Box, Grid, Activity, Shield, Cpu, Zap, Layout, Terminal as TerminalIcon,
+  Settings, ChevronDown, Command, Search, Bell, Layers, FileCode, Plus, Minus,
+  Pin, PinOff
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -41,6 +42,8 @@ const App: React.FC = () => {
   const [terminalSession, setTerminalSession] = useState<{podId: string, type: 'exec' | 'logs', container?: string} | null>(null);
   const [deletingResources, setDeletingResources] = useState<Set<string>>(new Set());
   const [uiScale, setUiScale] = useState(1.0);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
 
   useEffect(() => {
     // [K8s Diagnostic] 연결 정보 출력
@@ -73,24 +76,37 @@ const App: React.FC = () => {
       <Toaster position="top-right" theme="dark" richColors closeButton />
       <div className="noise" />
       
-      <aside className="w-[72px] hover:w-64 border-r border-border flex flex-col p-4 bg-card/80 backdrop-blur-3xl transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] group z-50">
+      <aside className={`${sidebarPinned ? 'w-64' : 'w-[72px] hover:w-64'} border-r border-border flex flex-col p-4 bg-card/80 backdrop-blur-3xl transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] group z-50 shrink-0`}>
         <div className="flex items-center gap-4 py-6 mb-8 px-1">
           <div className="w-10 h-10 min-w-[40px] bg-primary rounded-2xl flex items-center justify-center font-bold text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.4)] ring-1 ring-white/20 transition-transform duration-500 group-hover:rotate-[360deg]">
             <Box size={20} />
           </div>
-          <span className="text-xl font-black tracking-tighter opacity-0 group-hover:opacity-100 transition-all duration-300 delay-100 uppercase">PALANTIR</span>
+          <span className={`text-xl font-black tracking-tighter transition-all duration-300 delay-100 uppercase ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>PALANTIR</span>
         </div>
-        
+
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-2">
-          <SidebarItem icon={<Grid size={20} />} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-          <div className="py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] opacity-0 group-hover:opacity-100 transition-opacity">Workloads</div>
+          <SidebarItem pinned={sidebarPinned} icon={<Grid size={20} />} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+          <div className={`py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>Workloads</div>
           {Object.entries(RESOURCES).map(([id, def]) => (
-            <SidebarItem key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
+            <SidebarItem pinned={sidebarPinned} key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
           ))}
         </nav>
 
-        <div className="pt-4 border-t border-border mt-auto">
-          <SidebarItem icon={<Settings size={20} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        <div className="pt-4 border-t border-border mt-auto space-y-1">
+          {/* 사이드바 핀 고정 토글 */}
+          <button
+            onClick={() => setSidebarPinned(v => !v)}
+            className="w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 text-muted-foreground hover:bg-secondary/50 hover:text-primary"
+            title={sidebarPinned ? '사이드바 자동 축소 해제' : '사이드바 고정 열기'}
+          >
+            <div className="p-2 rounded-xl shrink-0">
+              {sidebarPinned ? <PinOff size={20} /> : <Pin size={20} />}
+            </div>
+            <span className={`text-sm font-bold tracking-tight whitespace-nowrap transition-opacity duration-300 delay-100 ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              {sidebarPinned ? 'Unpin' : 'Pin Sidebar'}
+            </span>
+          </button>
+          <SidebarItem pinned={sidebarPinned} icon={<Settings size={20} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
         </div>
       </aside>
 
@@ -140,16 +156,29 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto custom-scrollbar p-10 relative">
-          <ResourcesPage 
-            definition={RESOURCES[activeTab] || RESOURCES.pods} 
-            namespace={selectedNamespace} 
+        <div
+          className="flex-1 overflow-auto custom-scrollbar relative"
+          style={{
+            padding: '2.5rem',
+            paddingRight: selectedResource ? 'calc(48rem + 2.5rem)' : '2.5rem',
+            paddingBottom: eventsOpen ? 'calc(320px + 2.5rem)' : 'calc(40px + 2.5rem)',
+            transition: 'padding-right 0.3s ease, padding-bottom 0.3s ease',
+          }}
+        >
+          <ResourcesPage
+            definition={RESOURCES[activeTab] || RESOURCES.pods}
+            namespace={selectedNamespace}
             deletingResources={deletingArray}
             onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
           />
         </div>
 
-        <EventsViewer namespace={selectedNamespace} />
+        <EventsViewer
+          namespace={selectedNamespace}
+          sidebarWidth={sidebarPinned ? 256 : 72}
+          isOpen={eventsOpen}
+          onToggle={() => setEventsOpen(v => !v)}
+        />
       </main>
 
       <AnimatePresence>
@@ -183,10 +212,10 @@ const App: React.FC = () => {
   );
 };
 
-const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
+const SidebarItem = ({ icon, label, active, onClick, pinned }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void, pinned?: boolean }) => (
   <button onClick={onClick} className={`w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 group/item ${active ? 'bg-primary/10 text-primary shadow-[inset_0_0_15px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}>
-    <div className={`p-2 rounded-xl transition-all duration-300 ${active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-transparent group-hover/item:bg-white/5'}`}>{icon}</div>
-    <span className="text-sm font-bold tracking-tight opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100 whitespace-nowrap">{label}</span>
+    <div className={`p-2 rounded-xl transition-all duration-300 shrink-0 ${active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-transparent group-hover/item:bg-white/5'}`}>{icon}</div>
+    <span className={`text-sm font-bold tracking-tight whitespace-nowrap transition-opacity duration-300 delay-100 ${pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{label}</span>
   </button>
 );
 

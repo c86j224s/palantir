@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { RefreshCw, Hash, Loader2 } from 'lucide-react';
 import { ResourceDefinition } from '../App';
+import KubectlHint from '../components/KubectlHint';
 
 interface ResourceInfo {
   name: string;
@@ -71,7 +72,7 @@ const ResourcesPage = ({ definition, namespace, deletingResources, onViewDetail 
                 <th className="px-8 py-6">Identity</th>
                 <th className="px-8 py-6">Domain</th>
                 <th className="px-8 py-6">Condition</th>
-                <th className="px-8 py-6 text-right">Reference</th>
+                <th className="px-8 py-6 text-right">kubectl</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.03]">
@@ -105,8 +106,13 @@ const ResourcesPage = ({ definition, namespace, deletingResources, onViewDetail 
                         <span className={`text-xs font-black uppercase tracking-widest ${isDeleting ? 'text-red-500' : 'text-gray-400'}`}>{isDeleting ? 'Terminating' : res.status}</span>
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-right font-mono text-[10px] text-gray-600">
-                      ID_{res.name.substring(0, 6).toUpperCase()}
+                    <td className="px-8 py-5 text-right">
+                      <div className="flex justify-end">
+                        <KubectlHint commands={[
+                          { label: 'get', command: `kubectl get ${definition.kind.toLowerCase()} ${res.name} -n ${res.namespace}` },
+                          { label: 'describe', command: `kubectl describe ${definition.kind.toLowerCase()} ${res.name} -n ${res.namespace}` },
+                        ]} />
+                      </div>
                     </td>
                   </tr>
                 );

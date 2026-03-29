@@ -31,6 +31,7 @@ fn main() {
             commands::get_static_logs,
             commands::start_event_stream,
             commands::start_exec,
+            commands::write_to_session,
             commands::start_logs,
             commands::stop_session
         ])

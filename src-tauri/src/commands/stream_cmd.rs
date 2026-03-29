@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct TerminalSession {
     kill_tx: mpsc::Sender<()>,
+    input_tx: mpsc::Sender<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -83,21 +84,13 @@ pub async fn start_exec<R: Runtime>(
 
     {
         let mut sessions = state.0.lock().unwrap();
-        sessions.insert(session_id.clone(), TerminalSession { kill_tx });
+        sessions.insert(session_id.clone(), TerminalSession { kill_tx, input_tx: tx });
     }
 
     let window_clone = window.clone();
     let sid_for_output = session_id.clone();
 
-    let input_event = format!("exec-input:{}", session_id);
-    window.listen(input_event, move |event| {
-        if let Some(payload) = event.payload() {
-            if let Ok(text) = serde_json::from_str::<String>(payload) {
-                let _ = tx.try_send(text.into_bytes());
-            }
-        }
-    });
-
+    // stdin 라이터 태스크: kill 신호 또는 채널 종료 시 종료
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -112,19 +105,37 @@ pub async fn start_exec<R: Runtime>(
         }
     });
 
+    // stdout 스트림 태스크: 프론트엔드 이벤트 이름과 일치시킴
     tokio::spawn(async move {
-        let output_event = format!("exec-output:{}", sid_for_output);
-        let closed_event = format!("session-closed:{}", sid_for_output);
+        let output_event = format!("session-data-{}", sid_for_output);
+        let exit_event = format!("session-exit-{}", sid_for_output);
         let res = exec::stream_exec(attached, move |data| {
             let _ = window_clone.emit(&output_event, data);
         }).await;
         match res {
-            Ok(_) => { let _ = window.emit(&closed_event, "normal"); }
-            Err(e) => { let _ = window.emit(&closed_event, format!("Error: {}", e)); }
+            Ok(_) => { let _ = window.emit(&exit_event, "normal"); }
+            Err(e) => { let _ = window.emit(&exit_event, format!("Error: {}", e)); }
         }
     });
 
     Ok(session_id)
+}
+
+// 프론트엔드에서 터미널 입력 데이터를 보내는 커맨드
+#[tauri::command]
+pub async fn write_to_session(
+    state: State<'_, SessionManager>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let tx = {
+        let sessions = state.0.lock().unwrap();
+        sessions.get(&session_id).map(|s| s.input_tx.clone())
+    };
+    if let Some(tx) = tx {
+        tx.send(data.into_bytes()).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -8,8 +8,7 @@ echo "🚀 Starting Windows Cross-Compilation ($TARGET)..."
 
 # 1. 환경 준비
 mkdir -p $OUTPUT_DIR
-cargo llvm-cov --version || cargo install cargo-llvm-cov # 예시 도구 확인
-cargo xwin --version || cargo install cargo-xwin
+cargo xwin --version 2>/dev/null || cargo install cargo-xwin
 
 # 2. 프론트엔드 빌드 (정적 파일 생성)
 echo "⚛️ Building Frontend..."

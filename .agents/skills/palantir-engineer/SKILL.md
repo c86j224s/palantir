@@ -1,42 +1,93 @@
 ---
-name: "Palantir Engineer"
-description: "Expert Kubernetes developer working on c86j224s/palantir project specializing in Rust, Tauri, and React with a focus on defensive engineering, multi-agent orchestration, and cross-platform bridge reliability."
+name: palantir-engineer
+description: "Engineering principles for the Palantir k8s inspection tool (Rust/Tauri/React). ALWAYS activate when working on this project — implementing features, fixing bugs, reviewing code, cross-compiling, or any task touching the Palantir codebase. Do not skip this skill just because the task seems small."
 ---
 
 # palantir-engineer
 
-Expert Kubernetes GUI developer specializing in Rust, Tauri, and React with a focus on defensive engineering, multi-agent orchestration, and cross-platform bridge reliability.
+Palantir는 Rust, Tauri, React로 개발 중인 Kubernetes 인스펙션 툴입니다.
+
+이 스킬은 **신뢰할 수 있는 엔지니어링 습관**을 강제합니다. 과거 경험상 AI 에이전트는 코드를 작성한 뒤 빌드/테스트를 생략하거나, 프론트엔드만 혹은 백엔드만 검증하는 부분 검증을 보고로 대체하는 경향이 있었습니다. 이 스킬의 모든 원칙은 그 패턴을 방지하기 위해 존재합니다.
+
+## When to Use This Skill
+
+- Palantir 프로젝트의 기능 구현, 버그 수정, 코드 리뷰 작업 시
+- Rust 백엔드, Tauri 브리지, React 프론트엔드 관련 작업 시
+- 크로스 컴파일(Linux → Windows) 또는 K8s 클러스터 연동 작업 시
+- 다중 에이전트 오케스트레이션이 필요한 복잡한 설계 작업 시
 
 ## Instructions
 
-이 문서는 Palantir 프로젝트를 진행하는 모든 AI 에이전트가 반드시 준수해야 할 **절대 원칙**입니다.
+---
+
+### 1. 완료 보고 전 필수 검증 절차
+
+코드를 작성했다는 사실만으로는 작업이 끝난 것이 아닙니다. 사용자 입장에서 "완료"는 **실제로 동작한다는 증거**가 제시될 때입니다. 아무리 간단해 보이는 변경이라도 예상치 못한 곳에서 깨질 수 있으므로, 반드시 아래 스크립트를 실행하고 그 출력을 사용자에게 제시하십시오.
+
+```bash
+bash scripts/verify_all.sh
+```
+
+이 스크립트는 다음 7단계를 순서대로 수행합니다:
+1. 테스트 잔여 리소스 정리
+2. 필수 파일 존재 확인
+3. Rust 백엔드 컴파일 검사
+4. 백엔드 통합 테스트 (kind 클러스터 필요)
+5. 프론트엔드 프로덕션 빌드
+6. Vitest 유닛 테스트
+7. **코드 커버리지 측정** (`cargo llvm-cov` + `vitest --coverage`)
+
+백엔드와 프론트엔드 중 한쪽만 검증하는 것은 검증이 아닙니다. 스크립트가 한 번에 둘 다 커버합니다.
+
+> **kind 클러스터가 없는 경우**: 사용자에게 명시적으로 알리고, 클러스터 없이 가능한 단계(컴파일, 프론트엔드, 유닛 테스트)만 실행한 결과를 제시하십시오. 조용히 건너뛰지 마십시오.
+
+자세한 검증 전략은 `references/testing.md`를 참조하십시오.
 
 ---
 
-### 1. 검증 우선 원칙 (Verification First)
-*   **보고 전 증명**: "완료되었습니다"라고 보고하기 전, 반드시 다음 두 가지 검증 결과를 사용자에게 제시해야 합니다.
-    *   **백엔드**: 실제 `kind` 클러스터와의 통신을 포함한 통합 테스트 실행 로그.
-    *   **프론트엔드**: `Vitest` 유닛 테스트 통과 결과 및 빌드 정합성.
-*   **질적 검증**: 테스트는 단순히 성공 경로만 확인해서는 안 됩니다. **잠재적 결함(Pitfall)**, **불변성 제약**, **네트워크 순단**, **잘못된 입력** 등 예외 상황에 대한 방어력을 데이터로 증명하십시오. 커버리지 수치보다 '방어 케이스의 정교함'이 우선입니다.
-*   **증거 없는 보고 금지**: 단순히 코드를 작성했다는 사실만으로는 작업을 마친 것이 아닙니다.
+### 2. 코드 커버리지는 품질의 증거
 
-### 2. 환경 인식 및 추측 금지 (Environment Aware)
-*   사용자의 개발 환경(WSL2, Windows, K8s 클러스터 유무 등)을 절대 임의로 가정하지 마십시오.
-*   불확실한 경우 반드시 **확인 스크립트**를 먼저 실행하거나 사용자에게 질문하여 팩트를 확인하십시오.
-*   **빌드 오염 경계**: 증분 빌드 결과물(target/)의 오염 가능성을 항상 염두에 두십시오. 원인 불명의 컴파일 에러 발생 시 `cargo clean` 후 재시도를 우선 고려하십시오.
-*   **크로스 컴파일 지침**: 리눅스에서 Windows용 GUI 바이너리 생성 시, 리소스 컴파일러(`windres`)를 통한 Manifest 주입과 시스템 라이브러리(`comctl32`) 링크 여부를 반드시 기계적으로 전수 검사하십시오.
-*   **도구 사용 원칙**: 대량의 코드나 복잡한 텍스트를 다룰 때 구문 오류 가능성이 높은 bash 커맨드(cat <<EOF 등)를 지양하고, 신뢰성 있는 전용 도구(`write_file`, `replace`)를 우선 사용하십시오.
+새 로직을 작성할 때 테스트를 나중으로 미루면, 결국 테스트 없이 코드가 쌓입니다. 커버리지 수치 자체보다 **새로 작성한 코드에 방어 케이스가 있는가**가 중요합니다.
 
-### 3. 다중 에이전트 협업 및 중재 (Sub-Agent Orchestration)
-*   복잡한 작업(설계, 대규모 리팩토링 등)은 반드시 다음 역할을 가진 서브에이전트들을 가동하여 검토하십시오.
-    *   **Agent A (설계/구현)**: 실제 로직을 설계하거나 구현함.
-    *   **Agent B (깐깐한 리뷰어)**: 설계의 빈틈, 안전장치 부재, 테스트 부족 등을 비판함.
-    *   **Agent C (중재/최종 승인)**: 논의를 조율하고 사용자의 철학(고품질, 신뢰성)에 부합하는지 최종 승인함.
+- 성공 경로(happy path)만 확인하는 테스트는 반쪽짜리입니다.
+- 불변성 위반, 네트워크 순단, 잘못된 입력, 이미 종료된 리소스에 대한 재시도 등 **실패 시나리오**를 반드시 테스트하십시오.
+- `verify_all.sh [7/7]`의 커버리지 출력을 보고 새 코드가 측정에서 빠지지 않았는지 확인하십시오.
 
-### 4. UI/UX 디자인 철학 (Industrial Glassmorphism)
-*   디자인은 항상 **전문가용 고밀도 툴**의 정체성을 유지해야 합니다.
-*   다크 테마, 유리 질감, 상태별 글로우 효과를 필수적으로 적용하고, 모든 비동기 작업에 실시간 피드백(Toast, Spinner)을 연동하십시오.
-*   **리액트 훅 규칙**: Hooks는 반드시 모든 조건문과 조기 리턴보다 앞서 최상위 수준에서 선언하십시오.
+---
 
-### 5. 소통 언어 원칙
-*   모든 생각 과정(`thought`), 답변, 주석, 문서화는 반드시 **"한글"**로 진행하여 사용자와의 명확한 의사소통을 보장하십시오.
+### 3. 환경 인식 및 추측 금지
+
+이 프로젝트는 WSL2 위에서 Linux 바이너리와 Windows 크로스 컴파일이 공존합니다. 환경을 잘못 가정하면 재현 불가능한 버그가 생깁니다.
+
+- 불확실한 경우 확인 스크립트를 실행하거나 사용자에게 질문하여 팩트를 먼저 확인하십시오.
+- 원인 불명의 컴파일 에러 발생 시 `cargo clean -p palantir-app` 후 재시도하십시오.
+- **크로스 컴파일 시**: `windres` Manifest 주입과 `comctl32` 링크 여부를 빌드 후 반드시 확인하십시오 (`scripts/build_windows.sh` 참조).
+- 대량 코드 작성 시 `cat <<EOF` 방식보다 `Write`/`Edit` 전용 도구를 사용하십시오.
+
+---
+
+### 4. 복잡한 작업은 다중 에이전트로
+
+설계나 대규모 리팩토링처럼 판단이 필요한 작업을 혼자 처리하면 맹점이 생깁니다. 다음 역할로 서브에이전트를 분리하십시오:
+
+- **Agent A (설계/구현)**: 실제 로직을 설계하거나 구현합니다.
+- **Agent B (깐깐한 리뷰어)**: 설계의 빈틈, 안전장치 부재, 테스트 부족을 비판합니다.
+- **Agent C (중재/최종 승인)**: 논의를 조율하고 사용자의 기준(고품질, 신뢰성)에 부합하는지 승인합니다.
+
+오케스트레이션 패턴은 `references/orchestration.md`를 참조하십시오.
+
+---
+
+### 5. UI/UX: Industrial Glassmorphism
+
+디자인은 항상 **전문가용 고밀도 툴** 정체성을 유지합니다.
+
+- 다크 테마, 유리 질감, 상태별 글로우 효과 적용
+- 모든 비동기 작업에 Toast/Spinner 실시간 피드백 연동
+- React Hooks는 반드시 모든 조건문과 조기 리턴보다 앞서 최상위에서 선언
+
+---
+
+### 6. 소통 언어
+
+모든 답변, 주석, 문서화는 **한글**로 작성하십시오.

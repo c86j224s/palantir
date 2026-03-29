@@ -123,23 +123,26 @@ pub async fn terminate_ephemeral_container(
     pod_name: &str,
     container_name: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // exec를 통해 kill 1 명령을 내려 프로세스 종료 유도
     println!("🛑 [Backend] Terminating container {} in pod {}...", container_name, pod_name);
     let pods: Api<Pod> = Api::namespaced(client.client.clone(), namespace);
-    
+
     let ap = AttachParams {
         container: Some(container_name.to_string()),
         stdin: false,
         stdout: true,
-        stderr: true,
+        stderr: false,
         tty: false,
-        max_stdin_buf_size: Some(1024),
-        max_stdout_buf_size: Some(1024),
-        max_stderr_buf_size: Some(1024),
+        ..Default::default()
     };
 
-    // 프로세스 종료 시도 (sh -c kill 1)
-    let _ = pods.exec(pod_name, vec!["sh", "-c", "kill 1"], &ap).await?;
-    
+    // exec 실패(컨테이너 이미 종료/Waiting 상태)는 성공으로 처리
+    if let Ok(mut attached) = pods.exec(pod_name, vec!["sh", "-c", "kill 1"], &ap).await {
+        // stdout을 소비하여 명령 완료까지 대기 (즉시 드롭하면 명령이 중단될 수 있음)
+        if let Some(mut stdout) = attached.stdout() {
+            let mut buf = Vec::new();
+            let _ = tokio::io::AsyncReadExt::read_to_end(&mut stdout, &mut buf).await;
+        }
+    }
+
     Ok(())
 }

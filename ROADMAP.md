@@ -39,11 +39,11 @@
 *   [x] **Ephemeral Containers**: 실행 중인 팟에 디버깅용 컨테이너 동적 주입 (Cumulative Patch 적용)
 *   [x] **Cross-Compile Pipeline**: Linux에서 Windows용 Manifest/Resource가 내장된 .exe 생성 자동화
 *   [x] **WSL2-Windows Bridge**: localhostForwarding 및 SSL 우회 정책을 통한 무설정 연동
-*   [ ] **[BUG] Debug Shell I/O**: 주입된 임시 컨테이너 쉘 프롬프트 미출력 현상 수정
-*   [ ] **[BUG] Container Termination**: 임시 컨테이너 프로세스 종료(`kill 1`) 로직 안정화
+*   [x] **[BUG] Debug Shell I/O**: 이벤트 이름 불일치(`exec-output` vs `session-data`) 및 누락된 `write_to_session` 커맨드 수정
+*   [x] **[BUG] Container Termination**: `kill 1` exec 후 AttachedProcess stdout 드레인으로 완료 보장, 이미 종료된 컨테이너 graceful 처리
 *   [ ] **Port Forwarding**: GUI 상에서 간편하게 로컬 포트 포워딩 설정 및 관리
 *   [ ] **Cluster Context Switch**: 여러 클러스터 설정을 자유롭게 전환하는 기능
-*   [ ] **Kubectl Command Assistant**: UI 액션(삭제, 스케일, 디버그 등)에 대응하는 `kubectl` 명령어를 `?` 아이콘을 통해 보여주고 즉시 복사할 수 있는 가이드 기능 추가 (학습 및 CLI 연동 강화)
+*   [x] **Kubectl Command Assistant**: UI 액션(삭제, 스케일, 디버그 등)에 대응하는 `kubectl` 명령어를 `?` 아이콘을 통해 보여주고 즉시 복사할 수 있는 가이드 기능 추가 (학습 및 CLI 연동 강화)
 
 ## 🟣 Phase 6: Extended Ecosystem
 *   [ ] **Helm Integration**: 설치된 차트 목록 조회 및 업그레이드/삭제

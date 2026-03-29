@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  AlertTriangle, Info, Clock, ChevronDown, 
+import {
+  AlertTriangle, Info, Clock, ChevronDown,
   ChevronUp, Zap, Activity, Loader2
 } from 'lucide-react';
+import KubectlHint from './KubectlHint';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 
@@ -21,11 +22,13 @@ interface K8sEvent {
 
 interface Props {
   namespace: string;
+  sidebarWidth: number;
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
-const EventsViewer: React.FC<Props> = ({ namespace }) => {
+const EventsViewer: React.FC<Props> = ({ namespace, sidebarWidth, isOpen, onToggle }) => {
   const [events, setEvents] = useState<K8sEvent[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
 
   useEffect(() => {
@@ -77,10 +80,13 @@ const EventsViewer: React.FC<Props> = ({ namespace }) => {
   }, []);
 
   return (
-    <div className={`fixed bottom-0 left-[72px] right-0 z-[60] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isOpen ? 'h-80' : 'h-10'}`}>
+    <div
+      className={`fixed bottom-0 right-0 z-[60] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${isOpen ? 'h-80' : 'h-10'}`}
+      style={{ left: sidebarWidth }}
+    >
       {/* Handle / Header */}
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
+      <div
+        onClick={onToggle}
         className="h-10 bg-card/90 backdrop-blur-xl border-t border-border flex items-center justify-between px-6 cursor-pointer hover:bg-white/[0.03] transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -90,6 +96,11 @@ const EventsViewer: React.FC<Props> = ({ namespace }) => {
             <Loader2 size={14} className="animate-spin text-muted-foreground" />
           )}
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-foreground/80">Cluster Events Timeline</span>
+          <KubectlHint direction="up" commands={[
+            { label: 'list events', command: `kubectl get events -n ${namespace} --sort-by=.lastTimestamp` },
+            { label: 'watch events', command: `kubectl get events -n ${namespace} --sort-by=.lastTimestamp --watch` },
+            { label: 'warnings only', command: `kubectl get events -n ${namespace} --field-selector type=Warning --sort-by=.lastTimestamp` },
+          ]} />
           {events.length > 0 && (
             <span className="bg-primary/20 text-primary text-[9px] font-black px-2 py-0.5 rounded-full ring-1 ring-primary/30 animate-in zoom-in duration-300">
               {events.length} SIGNALS
@@ -142,9 +153,13 @@ const EventsViewer: React.FC<Props> = ({ namespace }) => {
                 <span className="text-[9px] font-mono text-gray-600 font-bold">
                   {new Date(ev.last_timestamp).toLocaleTimeString()}
                 </span>
-                <span className="text-[8px] font-black text-gray-700 uppercase tracking-tighter">
-                  {ev.namespace}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[8px] font-black text-gray-700 uppercase tracking-tighter">{ev.namespace}</span>
+                  <KubectlHint direction="up" commands={[
+                    { label: 'describe', command: `kubectl describe ${ev.object_kind.toLowerCase()} ${ev.object_name} -n ${ev.namespace}` },
+                    { label: 'events for object', command: `kubectl get events -n ${ev.namespace} --field-selector involvedObject.name=${ev.object_name} --sort-by=.lastTimestamp` },
+                  ]} />
+                </div>
               </div>
             </motion.div>
           )) : (

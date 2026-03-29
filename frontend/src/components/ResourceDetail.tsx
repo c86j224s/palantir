@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  X, Copy, Check, Trash2, Edit2, Save, ShieldAlert, 
+import {
+  X, Copy, Check, Trash2, Edit2, Save, ShieldAlert,
   Braces, RefreshCw, Sliders, Loader2, AlertCircle, Info, Zap, Terminal as TerminalIcon, FileText, Play, Activity
 } from 'lucide-react';
+import KubectlHint from './KubectlHint';
 import { invoke } from '@tauri-apps/api/tauri';
 import { ResourceDefinition } from '../App';
 import yamlParser from 'js-yaml';
@@ -250,14 +251,34 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
           {!isEditing && (
             <>
               <button onClick={() => setIsEditing(true)} className="p-2.5 hover:bg-white/5 rounded-xl border border-border text-muted-foreground hover:text-primary transition-all"><Edit2 size={18} /></button>
-              <button onClick={handleDelete} disabled={deleteConfirmPhase === 2} className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${deleteConfirmPhase === 1 ? 'bg-red-500/20 border-red-500/50 text-red-500 font-bold px-4' : 'border-border text-muted-foreground hover:text-red-500 hover:bg-white/5'}`}>
-                {deleteConfirmPhase === 2 ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                {deleteConfirmPhase === 1 && <span className="text-xs uppercase tracking-widest">Confirm?</span>}
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={handleDelete} disabled={deleteConfirmPhase === 2} className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${deleteConfirmPhase === 1 ? 'bg-red-500/20 border-red-500/50 text-red-500 font-bold px-4' : 'border-border text-muted-foreground hover:text-red-500 hover:bg-white/5'}`}>
+                  {deleteConfirmPhase === 2 ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                  {deleteConfirmPhase === 1 && <span className="text-xs uppercase tracking-widest">Confirm?</span>}
+                </button>
+                <KubectlHint commands={[{ command: `kubectl delete ${resource.definition.kind.toLowerCase()} ${resource.name} -n ${namespace}` }]} />
+              </div>
               <div className="w-[1px] h-6 bg-border mx-1" />
             </>
           )}
-          {!isEditing && <button onClick={() => { navigator.clipboard.writeText(yamlStr); toast.success("Copied to clipboard"); }} className="p-2.5 hover:bg-white/5 rounded-xl border border-border text-muted-foreground hover:text-foreground transition-all"><Copy size={18} /></button>}
+          {!isEditing && (
+            <>
+              <KubectlHint commands={[
+                { label: 'get', command: `kubectl get ${resource.definition.kind.toLowerCase()} ${resource.name} -n ${namespace}` },
+                { label: 'describe', command: `kubectl describe ${resource.definition.kind.toLowerCase()} ${resource.name} -n ${namespace}` },
+                { label: 'yaml', command: `kubectl get ${resource.definition.kind.toLowerCase()} ${resource.name} -n ${namespace} -o yaml` },
+                ...(resource.definition.kind === 'Pod' ? [
+                  { label: 'logs', command: `kubectl logs -f ${resource.name} -n ${namespace}` },
+                  { label: 'exec', command: `kubectl exec -it ${resource.name} -n ${namespace} -- sh` },
+                ] : []),
+                ...(['Deployment', 'StatefulSet'].includes(resource.definition.kind) ? [
+                  { label: 'rollout status', command: `kubectl rollout status ${resource.definition.kind.toLowerCase()}/${resource.name} -n ${namespace}` },
+                  { label: 'rollout history', command: `kubectl rollout history ${resource.definition.kind.toLowerCase()}/${resource.name} -n ${namespace}` },
+                ] : []),
+              ]} />
+              <button onClick={() => { navigator.clipboard.writeText(yamlStr); toast.success("Copied to clipboard"); }} className="p-2.5 hover:bg-white/5 rounded-xl border border-border text-muted-foreground hover:text-foreground transition-all"><Copy size={18} /></button>
+            </>
+          )}
           <button onClick={onClose} className="p-2.5 hover:bg-red-500/10 rounded-xl border border-border text-muted-foreground hover:text-red-500 transition-all"><X size={18} /></button>
         </div>
       </div>
@@ -305,6 +326,7 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${ec.state === 'Running' ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>{ec.state}</span>
                         {ec.state === 'Running' && (
                           <>
+                            <KubectlHint commands={[{ command: `kubectl exec -it ${resource.name} -c ${ec.name} -n ${namespace} -- sh` }]} />
                             <button onClick={() => onOpenTerminal(`${namespace}/${resource.name}`, 'exec', ec.name)} className="p-2 hover:bg-primary/20 rounded-lg text-primary transition-colors" title="Reconnect"><Play size={14} /></button>
                             <button onClick={() => handleTerminateSession(ec.name)} className="p-2 hover:bg-red-500/20 rounded-lg text-red-500 transition-colors" title="Terminate"><Trash2 size={14} /></button>
                           </>
@@ -319,7 +341,10 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
             <div className="space-y-2"><h3 className="text-xl font-black italic uppercase tracking-tighter text-foreground flex items-center gap-2"><Zap size={20} className="text-primary" /> New Debug Session</h3><p className="text-xs text-muted-foreground font-medium leading-relaxed">기존 파드에 임시 컨테이너를 주입하여 라이브 디버깅을 시작합니다.<br/>주의: 한 번 주입된 컨테이너는 파드가 종료될 때까지 제거할 수 없습니다.</p></div>
             <div className="glass-card rounded-3xl p-8 space-y-6">
               <div className="space-y-4"><span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Select Debug Tooling</span><div className="grid grid-cols-1 gap-3"><ImageOption active={debugImage === 'busybox:latest'} label="Busybox (Standard)" desc="Minimal shell with basic utils" onClick={() => setDebugImage('busybox:latest')} /><ImageOption active={debugImage === 'nicolaka/netshoot:latest'} label="Netshoot (Network)" desc="Powerful set of network troubleshooting tools" onClick={() => setDebugImage('nicolaka/netshoot:latest')} /><ImageOption active={debugImage === 'curlimages/curl:latest'} label="Curl (API)" desc="Focused on HTTP/API interaction tests" onClick={() => setDebugImage('curlimages/curl:latest')} /></div></div>
-              <button onClick={handleInjectDebug} disabled={isInjecting} className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_30px_rgba(59,130,246,0.3)] disabled:opacity-50 flex items-center justify-center gap-3">{isInjecting ? <Loader2 size={18} className="animate-spin" /> : <TerminalIcon size={18} />}{isInjecting ? 'Injecting System...' : 'Initiate Debug Session'}</button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleInjectDebug} disabled={isInjecting} className="flex-1 py-4 bg-primary text-primary-foreground rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_30px_rgba(59,130,246,0.3)] disabled:opacity-50 flex items-center justify-center gap-3">{isInjecting ? <Loader2 size={18} className="animate-spin" /> : <TerminalIcon size={18} />}{isInjecting ? 'Injecting System...' : 'Initiate Debug Session'}</button>
+                <KubectlHint commands={[{ command: `kubectl debug -it ${resource.name} -n ${namespace} --image=${debugImage} --target=$(kubectl get pod ${resource.name} -n ${namespace} -o jsonpath='{.spec.containers[0].name}')` }]} />
+              </div>
             </div>
           </div>
         )}
@@ -329,7 +354,15 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
       {!isEditing && showScale && (
         <div className="p-6 bg-white/[0.02] border-t border-border space-y-3">
           <div className="flex justify-between items-end"><div className="flex items-center gap-2 text-primary"><Sliders size={14} /><span className="text-[10px] font-black uppercase tracking-widest">Replicas</span></div><div className="text-xs font-mono"><span className="text-green-500 font-bold">{readyReplicas}</span><span className="text-gray-600 mx-1">/</span><span className="text-primary font-bold">{pendingReplicas}</span></div></div>
-          <div className="flex items-center gap-4"><input type="range" min="0" max="20" value={pendingReplicas} onChange={(e) => setPendingReplicas(parseInt(e.target.value))} className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary" />{pendingReplicas !== originalReplicas && (<button onClick={handleApplyScale} disabled={isProcessing} className="px-3 py-1 bg-primary text-primary-foreground text-[9px] font-black uppercase rounded-lg hover:scale-105 transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)]">Apply</button>)}</div>
+          <div className="flex items-center gap-4">
+            <input type="range" min="0" max="20" value={pendingReplicas} onChange={(e) => setPendingReplicas(parseInt(e.target.value))} className="flex-1 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary" />
+            {pendingReplicas !== originalReplicas && (
+              <div className="flex items-center gap-1">
+                <button onClick={handleApplyScale} disabled={isProcessing} className="px-3 py-1 bg-primary text-primary-foreground text-[9px] font-black uppercase rounded-lg hover:scale-105 transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)]">Apply</button>
+                <KubectlHint commands={[{ command: `kubectl scale ${resource.definition.kind.toLowerCase()}/${resource.name} --replicas=${pendingReplicas} -n ${namespace}` }]} />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </motion.div>
