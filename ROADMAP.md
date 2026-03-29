@@ -34,18 +34,21 @@
 *   [x] **Completed Resources**: 종료된 Job/CronJob의 상세 정보 및 정적 로그 조회 지원
 *   **Verification**: `resource_lifecycle_it.rs` 및 `resource_pitfalls_it.rs`를 통한 실 클러스터 상태 전이 검증 완료.
 
-## 🟡 Phase 5: Cluster Intelligence & Networking (Current)
+## 🟢 Phase 5: Cluster Intelligence & Networking (Completed)
 *   [x] **Events Viewer**: 전체 클러스터 이벤트 실시간 배치 워칭 및 타임라인 표시
 *   [x] **Ephemeral Containers**: 실행 중인 팟에 디버깅용 컨테이너 동적 주입 (Cumulative Patch 적용)
 *   [x] **Cross-Compile Pipeline**: Linux에서 Windows용 Manifest/Resource가 내장된 .exe 생성 자동화
-*   [x] **WSL2-Windows Bridge**: localhostForwarding 및 SSL 우회 정책을 통한 무설정 연동
-*   [x] **[BUG] Debug Shell I/O**: 이벤트 이름 불일치(`exec-output` vs `session-data`) 및 누락된 `write_to_session` 커맨드 수정
-*   [x] **[BUG] Container Termination**: `kill 1` exec 후 AttachedProcess stdout 드레인으로 완료 보장, 이미 종료된 컨테이너 graceful 처리
+*   [x] **[BUG] Debug Shell I/O**: 터미널 이벤트 이름 정합성 및 양방향 쓰기 기능 복구
+*   [x] **[BUG] Container Termination**: Shell Trap(`trap TERM`) 도입으로 PID 1 프로세스 종료 보장 및 stdout drain 완성
+*   [x] **[UX] Non-overlapping Layout**: 수직/수평 하이브리드 스택 설계를 통해 패널 간 겹침 현상 원천 차단
+*   [x] **[UX] Panel Resizing**: 사이드바, 디테일 패널, 이벤트 뷰어의 크기를 드래그로 조절하는 유연한 UI 구현
+*   [x] **[BUG] Vitest Stability**: `xterm.js` 모킹 생성자 오류 수정을 통해 테스트 실행 시 Hang 현상 해결
+*   [x] **Kubectl Command Assistant**: UI 액션에 대응하는 `kubectl` 명령어 가이드 기능 추가
+*   **Verification**: `ephemeral_it.rs` 통합 테스트 통과 및 `resources/pod.rs` 커버리지 85.27% 달성. `verify_all.sh` 전 단계 성공.
+
+## 🟡 Phase 6: Extended Ecosystem (Current)
 *   [ ] **Port Forwarding**: GUI 상에서 간편하게 로컬 포트 포워딩 설정 및 관리
 *   [ ] **Cluster Context Switch**: 여러 클러스터 설정을 자유롭게 전환하는 기능
-*   [x] **Kubectl Command Assistant**: UI 액션(삭제, 스케일, 디버그 등)에 대응하는 `kubectl` 명령어를 `?` 아이콘을 통해 보여주고 즉시 복사할 수 있는 가이드 기능 추가 (학습 및 CLI 연동 강화)
-
-## 🟣 Phase 6: Extended Ecosystem
 *   [ ] **Helm Integration**: 설치된 차트 목록 조회 및 업그레이드/삭제
 *   [ ] **Custom Resource Definitions (CRD)**: 사용자 정의 리소스 자동 감지 및 지원
 
