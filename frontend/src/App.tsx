@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box, Grid, Activity, Shield, Cpu, Zap, Layout, Terminal as TerminalIcon,
   Settings, ChevronDown, Command, Search, Bell, Layers, FileCode, Plus, Minus,
-  Pin, PinOff
+  Pin, PinOff, Globe
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -11,7 +11,7 @@ import ResourcesPage from './pages/ResourcesPage';
 import ResourceDetail from './components/ResourceDetail';
 import Terminal from './components/Terminal';
 import EventsViewer from './components/EventsViewer';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 
 export interface ResourceDefinition {
   label: string;
@@ -19,6 +19,13 @@ export interface ResourceDefinition {
   group: string;
   version: string;
   icon: React.ReactNode;
+}
+
+export interface ContextInfo {
+  name: string;
+  cluster: string;
+  user: string;
+  is_current: boolean;
 }
 
 const RESOURCES: Record<string, ResourceDefinition> = {
@@ -38,6 +45,12 @@ const App: React.FC = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('default');
   const [namespaces, setNamespaces] = useState<string[]>(['default']);
   const [isNsOpen, setIsNsOpen] = useState(false);
+  
+  // Context Switching States
+  const [contexts, setContexts] = useState<ContextInfo[]>([]);
+  const [selectedContext, setSelectedContext] = useState<string>('');
+  const [isContextOpen, setIsContextOpen] = useState(false);
+
   const [selectedResource, setSelectedResource] = useState<{name: string, definition: ResourceDefinition} | null>(null);
   const [terminalSession, setTerminalSession] = useState<{podId: string, type: 'exec' | 'logs', container?: string} | null>(null);
   const [deletingResources, setDeletingResources] = useState<Set<string>>(new Set());
@@ -47,9 +60,58 @@ const App: React.FC = () => {
 
   // Resizing States
   const [sidebarWidth, setSidebarWidth] = useState(256);
-  const [detailWidth, setDetailWidth] = useState(768); // 48rem
+  const [detailWidth, setDetailWidth] = useState(768); 
   const [eventsHeight, setEventsHeight] = useState(320);
   const [isResizing, setIsResizing] = useState<'sidebar' | 'detail' | 'events' | null>(null);
+
+  const fetchCoreData = async () => {
+    try {
+      const info: any = await invoke('get_connection_info');
+      setSelectedContext(info.current_context);
+      
+      const ctxList = await invoke<ContextInfo[]>('get_contexts');
+      setContexts(ctxList);
+
+      const nsList = await invoke<string[]>('get_namespaces');
+      setNamespaces(nsList);
+      if (!nsList.includes(selectedNamespace)) {
+        setSelectedNamespace(nsList.includes('default') ? 'default' : nsList[0]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch initial data:", err);
+      toast.error("Cluster connection failed");
+    }
+  };
+
+  useEffect(() => {
+    fetchCoreData();
+
+    const unlisten = listen('event-batch', (event: any) => {
+      // Global event batch handler if needed
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
+  const handleContextChange = async (contextName: string) => {
+    try {
+      setIsContextOpen(false);
+      const promise = invoke('switch_context', { contextName });
+      toast.promise(promise, {
+        loading: `Switching to context: ${contextName}...`,
+        success: () => `Switched to ${contextName}`,
+        error: 'Failed to switch context'
+      });
+      await promise;
+      
+      // Refresh all data
+      await fetchCoreData();
+      // Reset selections
+      setSelectedResource(null);
+      setTerminalSession(null);
+    } catch (err) {
+      console.error("Context switch error:", err);
+    }
+  };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -85,26 +147,6 @@ const App: React.FC = () => {
   }, [isResizing]);
 
   useEffect(() => {
-    // [K8s Diagnostic] 연결 정보 출력
-    invoke('get_connection_info')
-      .then((info: any) => {
-        console.log("🌐 [K8s Diagnostic] Connection Info:", info);
-      })
-      .catch(err => {
-        console.error("❌ [K8s Diagnostic] Failed to get connection info:", err);
-      });
-
-    invoke<string[]>('get_namespaces')
-      .then(setNamespaces)
-      .catch(err => console.error("Failed to fetch namespaces:", err));
-
-    const unlisten = listen('event-batch', (event: any) => {
-      // Global event batch handler if needed
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []);
-
-  useEffect(() => {
     document.documentElement.style.fontSize = `${uiScale * 16}px`;
   }, [uiScale]);
 
@@ -115,10 +157,8 @@ const App: React.FC = () => {
       <Toaster position="top-right" theme="dark" richColors closeButton />
       <div className="noise" />
 
-      {/* 상단 영역: 사이드바 + 메인 + 디테일 패널 (수평 배치) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         
-        {/* 1. 사이드바 (좌측 고정) */}
         <aside 
           style={{ width: sidebarPinned ? sidebarWidth : 80 }}
           className={`border-r border-border flex flex-col p-4 bg-card/80 backdrop-blur-3xl transition-[width] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] group z-50 shrink-0`}
@@ -155,7 +195,6 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        {/* 사이드바 리사이저 */}
         {sidebarPinned && (
           <div 
             onMouseDown={() => setIsResizing('sidebar')}
@@ -163,15 +202,50 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* 2. 중앙 메인 컨텐츠 영역 (헤더 + 콘텐츠) */}
         <div className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden relative">
           <header className="h-20 flex items-center justify-between px-10 relative z-40 bg-background/40 backdrop-blur-md border-b border-border/50 shrink-0">
-            <div className="flex items-center gap-8 leading-none">
+            <div className="flex items-center gap-6 leading-none">
+              
+              {/* Context Selector */}
+              <div className="relative group">
+                <button onClick={() => setIsContextOpen(!isContextOpen)} className="flex items-center gap-3 bg-primary/10 hover:bg-primary/20 px-5 py-2.5 rounded-2xl border border-primary/20 transition-all active:scale-95 shadow-sm ring-1 ring-primary/10">
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="text-[10px] text-primary/70 font-black uppercase tracking-widest mb-0.5">Cluster</span>
+                    <span className="text-sm font-black text-primary tracking-tighter truncate max-w-[120px]">{selectedContext || 'Loading...'}</span>
+                  </div>
+                  <ChevronDown size={14} className={`text-primary/70 transition-transform duration-300 ${isContextOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {isContextOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIsContextOpen(false)} />
+                      <motion.div initial={{ opacity: 0, scale: 0.95, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -10 }} className="absolute top-full left-0 mt-3 w-80 bg-popover border border-border rounded-3xl p-3 z-20 shadow-2xl ring-1 ring-white/10 overflow-hidden">
+                        <div className="px-3 py-2 text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2 border-b border-border flex items-center gap-2">
+                            <Globe size={12} />
+                            Available Contexts
+                        </div>
+                        <div className="max-h-80 overflow-auto custom-scrollbar space-y-1">
+                          {contexts.map(ctx => (
+                            <button key={ctx.name} onClick={() => handleContextChange(ctx.name)} className={`w-full text-left px-4 py-3 rounded-xl transition-all group/ctx ${selectedContext === ctx.name ? 'bg-primary/10 text-primary font-bold' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-bold tracking-tight">{ctx.name}</span>
+                                    <span className={`text-[10px] opacity-50 group-hover/ctx:opacity-100 transition-opacity truncate ${selectedContext === ctx.name ? 'text-primary/70' : ''}`}>{ctx.cluster}</span>
+                                </div>
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Namespace Selector */}
               <div className="relative group">
                 <button onClick={() => setIsNsOpen(!isNsOpen)} className="flex items-center gap-3 bg-secondary/50 hover:bg-secondary px-5 py-2.5 rounded-2xl border border-border transition-all active:scale-95 shadow-sm">
                   <div className="flex flex-col items-start leading-tight">
                     <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-0.5">Namespace</span>
-                    <span className="text-sm font-bold text-primary tracking-tight">{selectedNamespace}</span>
+                    <span className="text-sm font-bold text-foreground tracking-tight">{selectedNamespace}</span>
                   </div>
                   <ChevronDown size={14} className={`text-muted-foreground transition-transform duration-300 ${isNsOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -180,7 +254,7 @@ const App: React.FC = () => {
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIsNsOpen(false)} />
                       <motion.div initial={{ opacity: 0, scale: 0.95, y: -10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -10 }} className="absolute top-full left-0 mt-3 w-64 bg-popover border border-border rounded-3xl p-3 z-20 shadow-2xl ring-1 ring-white/10">
-                        <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 border-b border-border">Select Context</div>
+                        <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 border-b border-border">Select Namespace</div>
                         <div className="max-h-64 overflow-auto custom-scrollbar space-y-1">
                           {namespaces.map(ns => (
                             <button key={ns} onClick={() => { setSelectedNamespace(ns); setIsNsOpen(false); }} className={`w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all ${selectedNamespace === ns ? 'bg-primary/10 text-primary font-bold shadow-[inset_0_0_10px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>{ns}</button>
@@ -191,6 +265,7 @@ const App: React.FC = () => {
                   )}
                 </AnimatePresence>
               </div>
+
               <div className="flex items-center gap-4 bg-secondary/30 px-5 py-2.5 rounded-2xl border border-border w-full max-w-xl focus-within:ring-2 ring-primary/20 transition-all group shadow-inner">
                 <Command size={18} className="text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <input type="text" placeholder="Search cluster resources..." className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium" />
@@ -220,7 +295,6 @@ const App: React.FC = () => {
           </main>
         </div>
 
-        {/* 디테일 패널 리사이저 */}
         {selectedResource && (
           <div 
             onMouseDown={() => setIsResizing('detail')}
@@ -228,7 +302,6 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* 3. 우측 리소스 디테일 영역 (조건부 렌더링) */}
         <AnimatePresence mode="popLayout">
           {selectedResource && (
             <ResourceDetail 
@@ -252,7 +325,6 @@ const App: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* 이벤트 뷰어 리사이저 */}
       {eventsOpen && (
         <div 
           onMouseDown={() => setIsResizing('events')}
@@ -260,7 +332,6 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* 하단 영역: 이벤트 뷰어 (전체 가로폭 차지) */}
       <EventsViewer
         height={eventsHeight}
         namespace={selectedNamespace}
@@ -268,7 +339,6 @@ const App: React.FC = () => {
         onToggle={() => setEventsOpen(v => !v)}
       />
 
-      {/* 오버레이 요소 (터미널) */}
       {terminalSession && (
         <Terminal 
           session={terminalSession} 

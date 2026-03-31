@@ -6,10 +6,7 @@ use tauri::Manager;
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            // 윈도우에서 개발자 도구를 쓰기 위해 window 객체 확보
-            let window = app.get_window("main").unwrap();
-            // 릴리스 빌드에서도 F12로 열 수 있게 설정되어 있으나, 확실하게 하기 위해 초기화 시 오픈 시도 가능
-            // (사용자가 원할 때 F12나 우클릭-검사로 열 수 있습니다.)
+            let _window = app.get_window("main").unwrap();
             Ok(())
         })
         .manage(commands::stream_cmd::SessionManager::default())
@@ -29,11 +26,16 @@ fn main() {
             commands::get_connection_info,
             commands::terminate_debug_container,
             commands::get_static_logs,
+            commands::get_contexts,
+            commands::switch_context,
             commands::start_event_stream,
             commands::start_exec,
             commands::write_to_session,
             commands::start_logs,
-            commands::stop_session
+            commands::stop_session,
+            commands::start_port_forward,
+            commands::stop_port_forward,
+            commands::list_port_forwards
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

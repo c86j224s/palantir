@@ -28,13 +28,17 @@ pub struct K8sClient {
 
 impl K8sClient {
     pub async fn new() -> Result<Self, ClientError> {
-        let (config, _) = Self::get_config_internal().await?;
+        Self::new_with_context(None).await
+    }
+
+    pub async fn new_with_context(context_name: Option<String>) -> Result<Self, ClientError> {
+        let (config, _) = Self::get_config_internal(context_name).await?;
         let client = Client::try_from(config)?;
         Ok(Self { client })
     }
 
     pub async fn get_info() -> Result<ConnectionInfo, ClientError> {
-        let (config, meta) = Self::get_config_internal().await?;
+        let (config, meta) = Self::get_config_internal(None).await?;
         Ok(ConnectionInfo {
             cluster_url: config.cluster_url.to_string(),
             current_context: meta.current_context.unwrap_or_default(),
@@ -43,15 +47,18 @@ impl K8sClient {
         })
     }
 
-    async fn get_config_internal() -> Result<(Config, ConfigMeta), ClientError> {
+    pub async fn get_config_internal(context_name: Option<String>) -> Result<(Config, ConfigMeta), ClientError> {
         let config_path = resolve_kubeconfig()?;
         let path_str = config_path.to_string_lossy().to_string();
         let mut kubeconfig = kube::config::Kubeconfig::read_from(&config_path)?;
         
+        if let Some(target_ctx) = context_name {
+            kubeconfig.current_context = Some(target_ctx);
+        }
+        
         let mut current_context = kubeconfig.current_context.clone();
 
         if cfg!(target_os = "windows") {
-            // Context 보정
             if current_context.is_none() || current_context.as_deref() == Some("") {
                 if let Some(first_ctx) = kubeconfig.contexts.first() {
                     current_context = Some(first_ctx.name.clone());
@@ -59,7 +66,6 @@ impl K8sClient {
                 }
             }
 
-            // URL 보정 (IPv4 강제)
             for cluster in kubeconfig.clusters.iter_mut() {
                 if let Some(c) = &mut cluster.cluster {
                     if let Some(server) = &c.server {
@@ -89,7 +95,7 @@ impl K8sClient {
     }
 }
 
-struct ConfigMeta {
-    path: String,
-    current_context: Option<String>,
+pub struct ConfigMeta {
+    pub path: String,
+    pub current_context: Option<String>,
 }

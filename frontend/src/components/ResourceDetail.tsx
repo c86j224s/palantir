@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Copy, Check, Trash2, Edit2, Save, ShieldAlert,
-  Braces, RefreshCw, Sliders, Loader2, AlertCircle, Info, Zap, Terminal as TerminalIcon, FileText, Play, Activity
+  Braces, RefreshCw, Sliders, Loader2, AlertCircle, Info, Zap, Terminal as TerminalIcon, FileText, Play, Activity, Globe, StopCircle
 } from 'lucide-react';
 import KubectlHint from './KubectlHint';
 import { invoke } from '@tauri-apps/api/tauri';
@@ -30,7 +30,7 @@ const translateK8sError = (err: string): string => {
 const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdated, onDeleted, onDeleteStart, onOpenTerminal, width }) => {
   const [yamlStr, setYamlStr] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'yaml' | 'env' | 'debug' | 'logs'>('yaml');
+  const [activeTab, setActiveTab] = useState<'yaml' | 'env' | 'debug' | 'logs' | 'ports'>('yaml');
   
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -51,9 +51,18 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
   const [staticLogs, setStaticLogs] = useState<string>('');
   const [logsLoading, setLogsLoading] = useState(false);
 
+  // Port Forward states
+  const [localPort, setLocalPort] = useState<number>(8080);
+  const [remotePort, setRemotePort] = useState<number>(80);
+  const [activePorts, setActivePorts] = useState<number[]>([]);
+  const [isForwarding, setIsForwarding] = useState(false);
+
   useEffect(() => {
     fetchResourceData();
-    if (resource.definition.kind === 'Pod') fetchEphemeralContainers();
+    if (resource.definition.kind === 'Pod') {
+      fetchEphemeralContainers();
+    }
+    fetchActivePorts();
   }, [resource, namespace]);
 
   const fetchResourceData = async () => {
@@ -86,6 +95,15 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
       setEphemeralContainers(pod.ephemeral_containers || []);
     } catch (err) {
       console.error("Failed to fetch ephemeral containers:", err);
+    }
+  };
+
+  const fetchActivePorts = async () => {
+    try {
+      const ports = await invoke<number[]>('list_port_forwards');
+      setActivePorts(ports);
+    } catch (err) {
+      console.error("Failed to fetch active ports:", err);
     }
   };
 
@@ -212,6 +230,70 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
     });
   };
 
+  // K8s 매니페스트에서 포트 정보 추출 (Source of Truth)
+  const discoveredPorts = useMemo(() => {
+    if (!yamlStr) return [];
+    try {
+      const parsed = yamlParser.load(yamlStr) as any;
+      const ports: { port: number, name?: string, protocol?: string }[] = [];
+
+      if (resource.definition.kind === 'Pod') {
+        parsed.spec?.containers?.forEach((c: any) => {
+          c.ports?.forEach((p: any) => {
+            ports.push({ port: p.containerPort, name: p.name, protocol: p.protocol });
+          });
+        });
+      } else if (resource.definition.kind === 'Service') {
+        parsed.spec?.ports?.forEach((p: any) => {
+          ports.push({ port: p.port, name: p.name, protocol: p.protocol });
+        });
+      }
+      return ports;
+    } catch (e) {
+      return [];
+    }
+  }, [yamlStr, resource.definition.kind]);
+
+  const handleStartPortForward = async (remote: number) => {
+    // 로컬 포트는 원격 포트와 동일하게 시도하되, 충돌 시 사용자가 수정할 수 있게 함
+    const local = localPort || remote;
+    setIsForwarding(true);
+    const promise = invoke('start_port_forward', {
+      namespace, podName: resource.name, localPort: local, remotePort: remote
+    });
+    toast.promise(promise, {
+      loading: `Opening tunnel: 127.0.0.1:${local} -> ${remote}...`,
+      success: () => {
+        fetchActivePorts();
+        return `Forwarding active on port ${local}`;
+      },
+      error: (err) => `Failed to start port forward: ${err}`,
+      finally: () => setIsForwarding(false)
+    });
+  };
+
+  const handleStopPortForward = (port: number) => {
+    // 1. 즉시 UI에서 제거 (비동기 호출 전)
+    setActivePorts(prev => prev.filter(p => p !== port));
+    
+    // 2. 백엔드 호출은 별도로 진행
+    const promise = invoke('stop_port_forward', { localPort: port });
+    
+    toast.promise(promise, {
+      loading: `Releasing port ${port}...`,
+      success: () => {
+        // 실제 백엔드 상태를 한 번 더 동기화 (간격 두기)
+        setTimeout(() => fetchActivePorts(), 200);
+        return `Port ${port} released`;
+      },
+      error: (err) => {
+        // 실패 시 다시 목록 복구
+        fetchActivePorts();
+        return `Failed to stop: ${err}`;
+      }
+    });
+  };
+
   const envVars = useMemo(() => {
     if (!yamlStr || resource.definition.kind !== 'Pod') return [];
     const vars: {name: string, value: string}[] = [];
@@ -231,6 +313,7 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
   }, [yamlStr, resource.definition.kind]);
 
   const showScale = ['Deployment', 'StatefulSet', 'ReplicaSet'].includes(resource.definition.kind);
+  const showPorts = ['Pod', 'Service'].includes(resource.definition.kind);
 
   return (
     <motion.div
@@ -290,6 +373,7 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
         <div className="flex px-8 pt-4 gap-4 border-b border-border bg-card/30">
           <TabItem active={activeTab === 'yaml'} label="Specifications" onClick={() => setActiveTab('yaml')} />
           {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'env'} label="Environment" onClick={() => setActiveTab('env')} />}
+          {showPorts && <TabItem active={activeTab === 'ports'} label="Ports & Forward" onClick={() => setActiveTab('ports')} />}
           {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'debug'} label="Debug Session" onClick={() => setActiveTab('debug')} />}
           {resource.definition.kind === 'Pod' && <TabItem active={activeTab === 'logs'} label="Full Logs" onClick={() => setActiveTab('logs')} />}
         </div>
@@ -311,6 +395,63 @@ const ResourceDetail: React.FC<Props> = ({ resource, namespace, onClose, onUpdat
             ) : (
               <pre className="p-8 font-mono text-[11px] leading-relaxed text-gray-300/90 selection:bg-primary/30 whitespace-pre-wrap">{staticLogs || 'No log data available for this pod.'}</pre>
             )}
+          </div>
+        ) : activeTab === 'ports' ? (
+          <div className="p-10 space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
+            {activePorts.length > 0 && (
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] flex items-center gap-2"><Globe size={14} /> Active Tunnels</h4>
+                <div className="space-y-2">
+                  {activePorts.map((port) => (
+                    <div key={port} className="flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl group transition-all shadow-[0_0_15px_rgba(59,130,246,0.1)]">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black text-primary">127.0.0.1:{port}</span>
+                        <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">Active Forwarder</span>
+                      </div>
+                      <button onClick={() => handleStopPortForward(port)} className="p-2.5 hover:bg-red-500/20 rounded-xl text-red-500 transition-colors" title="Stop Forwarding"><StopCircle size={18} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2"><h3 className="text-xl font-black italic uppercase tracking-tighter text-foreground flex items-center gap-2"><Globe size={20} className="text-primary" /> Port Forwarding</h3><p className="text-xs text-muted-foreground font-medium leading-relaxed">K8s 리소스에 정의된 포트를 로컬과 연결합니다.<br/>원천 데이터: <b>{resource.definition.kind} Manifest</b></p></div>
+            
+            <div className="glass-card rounded-3xl p-8 space-y-8">
+                <div className="space-y-4">
+                    <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Discovered Ports</span>
+                    <div className="grid grid-cols-1 gap-3">
+                        {discoveredPorts.length > 0 ? discoveredPorts.map((p, i) => (
+                            <button key={i} onClick={() => handleStartPortForward(p.port)} disabled={isForwarding} className="w-full text-left p-4 rounded-2xl border border-white/5 bg-white/[0.02] hover:bg-primary/10 hover:border-primary/30 transition-all group flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-black text-foreground group-hover:text-primary transition-colors">{p.port} / {p.protocol || 'TCP'}</span>
+                                    <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{p.name || 'Unnamed Port'}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    {activePorts.includes(localPort || p.port) && <span className="text-[8px] font-black bg-green-500/20 text-green-500 px-2 py-0.5 rounded-md uppercase">Live</span>}
+                                    <Zap size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                                </div>
+                            </button>
+                        )) : (
+                            <div className="py-10 flex flex-col items-center justify-center bg-black/20 rounded-2xl border border-dashed border-white/10">
+                                <AlertCircle size={24} className="text-gray-600 mb-2" />
+                                <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest">No ports found in YAML</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                    <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Custom Local Port</span>
+                        <span className="text-[9px] text-gray-600">Default: Same as remote</span>
+                    </div>
+                    <div className="flex gap-3">
+                        <input type="number" placeholder="Enter local port..." value={localPort || ''} onChange={(e) => setLocalPort(parseInt(e.target.value))} className="flex-1 bg-black/40 border border-white/10 rounded-2xl p-4 font-mono text-sm text-primary focus:ring-2 ring-primary/20 outline-none transition-all" />
+                        <KubectlHint commands={[{ command: `kubectl port-forward ${resource.definition.kind.toLowerCase()}/${resource.name} ${localPort || 'PORT'}:PORT -n ${namespace}` }]} />
+                    </div>
+                </div>
+            </div>
           </div>
         ) : (
           <div className="p-10 space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">

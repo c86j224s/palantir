@@ -3114,6 +3114,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3121,6 +3122,7 @@ dependencies = [
 name = "palantir-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "dirs",
  "futures",
@@ -3129,8 +3131,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 
