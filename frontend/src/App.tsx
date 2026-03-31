@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box, Grid, Activity, Shield, Cpu, Zap, Layout, Terminal as TerminalIcon,
   Settings, ChevronDown, Command, Search, Bell, Layers, FileCode, Plus, Minus,
-  Pin, PinOff, Globe
+  Pin, PinOff, Globe, Puzzle, Loader2, AlertTriangle
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -20,6 +20,19 @@ export interface ResourceDefinition {
   group: string;
   version: string;
   icon: React.ReactNode;
+  scope?: 'Namespaced' | 'Cluster';
+  plural?: string;
+  isCrd?: boolean;
+}
+
+export interface CrdInfo {
+  name: string;       // "foos.example.com"
+  group: string;      // "example.com"
+  kind: string;       // "Foo"
+  plural: string;     // "foos"
+  scope: 'Namespaced' | 'Cluster';
+  version: string;    // storage 버전
+  versions: string[]; // served 버전 전체 목록
 }
 
 export interface ContextInfo {
@@ -46,11 +59,16 @@ const App: React.FC = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('default');
   const [namespaces, setNamespaces] = useState<string[]>(['default']);
   const [isNsOpen, setIsNsOpen] = useState(false);
-  
+
   // Context Switching States
   const [contexts, setContexts] = useState<ContextInfo[]>([]);
   const [selectedContext, setSelectedContext] = useState<string>('');
   const [isContextOpen, setIsContextOpen] = useState(false);
+
+  // CRD 자동 감지 상태
+  const [crds, setCrds] = useState<CrdInfo[]>([]);
+  const [crdsLoading, setCrdsLoading] = useState(false);
+  const [crdsError, setCrdsError] = useState<string | null>(null);
 
   const [selectedResource, setSelectedResource] = useState<{name: string, definition: ResourceDefinition} | null>(null);
   const [terminalSession, setTerminalSession] = useState<{podId: string, type: 'exec' | 'logs', container?: string} | null>(null);
@@ -65,11 +83,32 @@ const App: React.FC = () => {
   const [eventsHeight, setEventsHeight] = useState(320);
   const [isResizing, setIsResizing] = useState<'sidebar' | 'detail' | 'events' | null>(null);
 
+  const fetchCrds = async () => {
+    setCrdsLoading(true);
+    setCrdsError(null);
+    try {
+      const data = await invoke<CrdInfo[]>('discover_crds');
+      setCrds(data);
+    } catch (err) {
+      const errStr = String(err);
+      if (errStr.includes('Forbidden') || errStr.includes('403')) {
+        setCrdsError('CRD 조회 권한 없음 (cluster-admin 필요)');
+      } else if (errStr.includes('connection') || errStr.includes('refused')) {
+        setCrdsError('클러스터 연결 불가');
+      } else {
+        setCrdsError('CRD 목록 조회 실패');
+      }
+      setCrds([]);
+    } finally {
+      setCrdsLoading(false);
+    }
+  };
+
   const fetchCoreData = async () => {
     try {
       const info: any = await invoke('get_connection_info');
       setSelectedContext(info.current_context);
-      
+
       const ctxList = await invoke<ContextInfo[]>('get_contexts');
       setContexts(ctxList);
 
@@ -78,10 +117,35 @@ const App: React.FC = () => {
       if (!nsList.includes(selectedNamespace)) {
         setSelectedNamespace(nsList.includes('default') ? 'default' : nsList[0]);
       }
+
+      // CRD 조회는 독립적으로 실행 — 실패해도 다른 기능에 영향 없음
+      fetchCrds();
     } catch (err) {
       console.error("Failed to fetch initial data:", err);
       toast.error("Cluster connection failed");
     }
+  };
+
+  /// activeTab에 해당하는 ResourceDefinition을 반환합니다.
+  /// CRD 탭은 "crd:{crd.name}" 형식으로 저장됩니다.
+  const getActiveDefinition = (): ResourceDefinition => {
+    if (activeTab.startsWith('crd:')) {
+      const crdName = activeTab.slice(4);
+      const found = crds.find(c => c.name === crdName);
+      if (found) {
+        return {
+          label: found.kind,
+          kind: found.kind,
+          group: found.group,
+          version: found.version,
+          icon: <Puzzle size={20} />,
+          scope: found.scope,
+          plural: found.plural,
+          isCrd: true,
+        };
+      }
+    }
+    return RESOURCES[activeTab] || RESOURCES.pods;
   };
 
   useEffect(() => {
@@ -178,6 +242,37 @@ const App: React.FC = () => {
             {Object.entries(RESOURCES).map(([id, def]) => (
               <SidebarItem pinned={sidebarPinned} key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
             ))}
+
+            {/* CRD 섹션 */}
+            <div className={`py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] transition-opacity flex items-center gap-2 ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <span>Custom Resources</span>
+              {crdsLoading && <Loader2 size={10} className="animate-spin" />}
+            </div>
+            {crdsError ? (
+              <div className={`px-3 py-2 flex items-center gap-2 text-[9px] text-amber-500/60 transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                <AlertTriangle size={10} />
+                <span className="truncate">{crdsError}</span>
+              </div>
+            ) : crds.length === 0 && !crdsLoading ? (
+              <div className={`px-3 py-2 text-[9px] text-muted-foreground/30 transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                No CRDs found
+              </div>
+            ) : (
+              crds.map(crd => (
+                <SidebarItem
+                  pinned={sidebarPinned}
+                  key={crd.name}
+                  icon={<Puzzle size={20} />}
+                  label={crd.kind}
+                  sublabel={crd.group}
+                  active={activeTab === `crd:${crd.name}`}
+                  onClick={() => {
+                    setActiveTab(`crd:${crd.name}`);
+                    setSelectedResource(null);
+                  }}
+                />
+              ))
+            )}
           </nav>
 
           <div className="pt-4 border-t border-border mt-auto space-y-1">
@@ -242,8 +337,8 @@ const App: React.FC = () => {
                 </AnimatePresence>
               </div>
 
-              {/* Namespace Selector */}
-              <div className="relative group">
+              {/* Namespace Selector — Cluster-scoped CRD 선택 시 비활성화 */}
+              <div className={`relative group ${getActiveDefinition().scope === 'Cluster' ? 'opacity-40 pointer-events-none' : ''}`}>
                 <button onClick={() => setIsNsOpen(!isNsOpen)} className="flex items-center gap-3 bg-secondary/50 hover:bg-secondary px-5 py-2.5 rounded-2xl border border-border transition-all active:scale-95 shadow-sm">
                   <div className="flex flex-col items-start leading-tight">
                     <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-0.5">Namespace</span>
@@ -292,10 +387,10 @@ const App: React.FC = () => {
               <HelmPage namespace={selectedNamespace} />
             ) : (
               <ResourcesPage
-                definition={RESOURCES[activeTab] || RESOURCES.pods}
+                definition={getActiveDefinition()}
                 namespace={selectedNamespace}
                 deletingResources={deletingArray}
-                onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
+                onViewDetail={(name: string) => setSelectedResource({ name, definition: getActiveDefinition() })}
               />
             )}
           </main>
@@ -355,10 +450,24 @@ const App: React.FC = () => {
   );
 };
 
-const SidebarItem = ({ icon, label, active, onClick, pinned }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void, pinned?: boolean }) => (
+const SidebarItem = ({
+  icon, label, sublabel, active, onClick, pinned
+}: {
+  icon: React.ReactNode;
+  label: string;
+  sublabel?: string;
+  active?: boolean;
+  onClick: () => void;
+  pinned?: boolean;
+}) => (
   <button onClick={onClick} className={`w-full flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-300 group/item ${active ? 'bg-primary/10 text-primary shadow-[inset_0_0_15px_hsl(var(--primary)/0.1)]' : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'}`}>
     <div className={`p-2 rounded-xl transition-all duration-300 shrink-0 ${active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-transparent group-hover/item:bg-white/5'}`}>{icon}</div>
-    <span className={`text-sm font-bold tracking-tight whitespace-nowrap transition-opacity duration-300 delay-100 ${pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{label}</span>
+    <div className={`flex flex-col transition-opacity duration-300 delay-100 min-w-0 ${pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+      <span className="text-sm font-bold tracking-tight whitespace-nowrap">{label}</span>
+      {sublabel && (
+        <span className="text-[9px] text-muted-foreground/50 font-mono truncate max-w-[140px]">{sublabel}</span>
+      )}
+    </div>
   </button>
 );
 

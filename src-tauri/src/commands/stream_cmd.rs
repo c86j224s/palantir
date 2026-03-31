@@ -1,10 +1,26 @@
 use palantir_core::{K8sClient, actions::{exec, logs, events, portforward}};
+use palantir_core::models::CrdInfo;
 use tauri::{Window, Runtime, State};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// CRD 캐시 항목: 캐시된 목록과 마지막 조회 시각
+pub struct CrdCache {
+    pub data: Vec<CrdInfo>,
+    pub fetched_at: Instant,
+}
+
+impl CrdCache {
+    const TTL: Duration = Duration::from_secs(60);
+
+    pub fn is_fresh(&self) -> bool {
+        self.fetched_at.elapsed() < Self::TTL
+    }
+}
 
 pub struct TerminalSession {
     kill_tx: mpsc::Sender<()>,
@@ -15,6 +31,8 @@ pub struct SessionManager {
     pub sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
     pub port_forwards: Arc<Mutex<HashMap<u16, CancellationToken>>>,
     pub current_context: Arc<Mutex<Option<String>>>,
+    /// CRD 목록 캐시 (60초 TTL, 컨텍스트 전환 시 무효화)
+    pub crd_cache: Arc<Mutex<Option<CrdCache>>>,
 }
 
 impl Default for SessionManager {
@@ -23,6 +41,7 @@ impl Default for SessionManager {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             port_forwards: Arc::new(Mutex::new(HashMap::new())),
             current_context: Arc::new(Mutex::new(None)),
+            crd_cache: Arc::new(Mutex::new(None)),
         }
     }
 }

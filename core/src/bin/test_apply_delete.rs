@@ -25,7 +25,7 @@ data:
 "#, test_cm_name, namespace);
 
     println!("1. Applying ConfigMap '{}'...", test_cm_name);
-    match generic::apply_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name, &yaml_content).await {
+    match generic::apply_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name, &yaml_content, "Namespaced", None).await {
         Ok(_) => println!("✅ Successfully applied ConfigMap!"),
         Err(e) => {
             println!("❌ Apply failed: {:?}", e);
@@ -37,7 +37,7 @@ data:
     sleep(Duration::from_secs(1)).await;
 
     println!("\n2. Verifying Creation via get_resource_yaml...");
-    match generic::get_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name).await {
+    match generic::get_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name, "Namespaced", None).await {
         Ok(yaml) => {
             if yaml.contains("testing") {
                 println!("✅ Verified: ConfigMap exists and contains correct data.");
@@ -49,7 +49,7 @@ data:
     }
 
     println!("\n3. Deleting ConfigMap '{}'...", test_cm_name);
-    match generic::delete_resource_generic(&client, namespace, &configmap_gvk, test_cm_name).await {
+    match generic::delete_resource_generic(&client, namespace, &configmap_gvk, test_cm_name, "Namespaced", None).await {
         Ok(_) => println!("✅ Successfully issued delete command!"),
         Err(e) => println!("❌ Delete failed: {:?}", e),
     }
@@ -58,7 +58,7 @@ data:
     sleep(Duration::from_secs(2)).await;
 
     println!("\n4. Verifying Deletion...");
-    match generic::get_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name).await {
+    match generic::get_resource_yaml(&client, namespace, &configmap_gvk, test_cm_name, "Namespaced", None).await {
         Ok(_) => println!("❌ Verification failed: ConfigMap still exists!"),
         Err(_) => println!("✅ Verified: ConfigMap is gone (404 Not Found as expected)."),
     }

@@ -26,7 +26,7 @@ data:
 "#, name);
 
     println!("Applying 'dirty' YAML (should succeed after sanitization)...");
-    match generic::apply_resource_yaml(&client, "default", &cm_gvk, name, &dirty_yaml).await {
+    match generic::apply_resource_yaml(&client, "default", &cm_gvk, name, &dirty_yaml, "Namespaced", None).await {
         Ok(_) => println!("✅ Successfully applied! Sanitization logic works."),
         Err(e) => {
             println!("❌ Apply failed: {:?}", e);
@@ -35,5 +35,5 @@ data:
     }
 
     // 정리
-    let _ = generic::delete_resource_generic(&client, "default", &cm_gvk, name).await;
+    let _ = generic::delete_resource_generic(&client, "default", &cm_gvk, name, "Namespaced", None).await;
 }

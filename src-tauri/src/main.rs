@@ -38,7 +38,8 @@ fn main() {
             commands::list_port_forwards,
             commands::get_helm_releases,
             commands::get_helm_manifest,
-            commands::preview_helm_template
+            commands::preview_helm_template,
+            commands::discover_crds
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

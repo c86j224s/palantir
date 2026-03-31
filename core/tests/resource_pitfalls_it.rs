@@ -11,7 +11,7 @@ async fn test_resource_manipulation_pitfalls() {
 
     // 1. 존재하지 않는 리소스 삭제 시도 시의 방어력
     println!("🔍 Testing deletion of non-existent resource...");
-    let result = generic::delete_resource_generic(&ctx.client, &ctx.namespace, &cm_gvk, "non-existent-cm").await;
+    let result = generic::delete_resource_generic(&ctx.client, &ctx.namespace, &cm_gvk, "non-existent-cm", "Namespaced", None).await;
     
     // K8s API는 404를 리턴해야 하며, 우리 백엔드는 이를 에러로 우아하게 잡아야 함
     assert!(result.is_err(), "Deleting non-existent resource should return an error");
@@ -40,7 +40,7 @@ spec:
         image: nginx:alpine
 "#, deploy_name);
 
-    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &deploy_gvk, deploy_name, &yaml).await.expect("Setup failed");
+    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &deploy_gvk, deploy_name, &yaml, "Namespaced", None).await.expect("Setup failed");
 
     println!("🔍 Testing scaling to negative replicas (-1)...");
     let scale_result = generic::scale_resource_generic(&ctx.client, &ctx.namespace, &deploy_gvk, deploy_name, -1).await;

@@ -26,7 +26,7 @@ spec:
 "#, pod_name);
 
     println!("🚀 Applying initial pod configuration...");
-    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &yaml).await.expect("Failed to apply pod");
+    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &yaml, "Namespaced", None).await.expect("Failed to apply pod");
 
     // 2. Wait for Running state
     println!("⏳ Waiting for pod to reach Running state (timeout 60s)...");
@@ -35,13 +35,13 @@ spec:
 
     // 3. Verify Env via YAML retrieval
     println!("🔍 Verifying environment variables via generic engine...");
-    let retrieved_yaml = generic::get_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name).await.expect("Failed to get yaml");
+    let retrieved_yaml = generic::get_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, "Namespaced", None).await.expect("Failed to get yaml");
     assert!(retrieved_yaml.contains("initial-value"), "YAML did not contain expected environment value");
 
     // 4. Test Negative Scenario: Modification of Immutable Field
     let modified_yaml = yaml.replace("initial-value", "changed-value");
     println!("🚫 Attempting to modify immutable pod field (expecting error)...");
-    let result = generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &modified_yaml).await;
+    let result = generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &modified_yaml, "Namespaced", None).await;
     
     assert!(result.is_err(), "Pod modification should have failed due to immutability but succeeded!");
     let err_msg = result.err().unwrap().to_string();

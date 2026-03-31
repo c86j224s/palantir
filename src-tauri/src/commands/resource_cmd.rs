@@ -1,7 +1,8 @@
-use palantir_core::{K8sClient, resources::{pod, namespace, deployment, service, generic, helm}, models::{PodInfo, ResourceInfo}, config::ContextInfo};
+use palantir_core::{K8sClient, resources::{pod, namespace, deployment, service, generic, helm, crd}, models::{PodInfo, ResourceInfo, CrdInfo}, config::ContextInfo};
 use kube::core::GroupVersionKind;
 use tauri::State;
-use crate::commands::stream_cmd::SessionManager;
+use crate::commands::stream_cmd::{SessionManager, CrdCache};
+use std::time::Instant;
 
 // Helm 릴리스 목록 조회
 #[tauri::command]
@@ -46,7 +47,7 @@ pub async fn get_contexts() -> Result<Vec<ContextInfo>, String> {
     palantir_core::config::get_available_contexts().map_err(|e| e.to_string())
 }
 
-// 컨텍스트 전환 커맨드
+// 컨텍스트 전환 커맨드 (전환 시 CRD 캐시 무효화)
 #[tauri::command]
 pub async fn switch_context(
     state: State<'_, SessionManager>,
@@ -54,7 +55,42 @@ pub async fn switch_context(
 ) -> Result<(), String> {
     let mut current = state.current_context.lock().unwrap();
     *current = Some(context_name);
+    // 컨텍스트 전환 시 CRD 캐시 무효화
+    *state.crd_cache.lock().unwrap() = None;
     Ok(())
+}
+
+/// 클러스터에 설치된 모든 CRD 목록을 반환합니다.
+/// 60초 TTL 캐시를 사용하여 대형 클러스터에서의 반복 조회 비용을 줄입니다.
+/// RBAC 권한이 없는 경우 에러 메시지에 "Forbidden" 또는 "403"이 포함됩니다.
+#[tauri::command]
+pub async fn discover_crds(
+    state: State<'_, SessionManager>,
+) -> Result<Vec<CrdInfo>, String> {
+    // 캐시 확인 (TTL 이내이면 캐시 반환)
+    {
+        let cache_guard = state.crd_cache.lock().unwrap();
+        if let Some(ref cache) = *cache_guard {
+            if cache.is_fresh() {
+                return Ok(cache.data.clone());
+            }
+        }
+    }
+
+    let context_name = state.current_context.lock().unwrap().clone();
+    let client = K8sClient::new_with_context(context_name)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let data = crd::list_crds(&client).await.map_err(|e| e.to_string())?;
+
+    // 캐시 갱신
+    *state.crd_cache.lock().unwrap() = Some(CrdCache {
+        data: data.clone(),
+        fetched_at: Instant::now(),
+    });
+
+    Ok(data)
 }
 
 // 파드에 디버깅용 Ephemeral Container 주입 커맨드
@@ -68,11 +104,11 @@ pub async fn inject_debug_container(
     let context_name = state.current_context.lock().unwrap().clone();
     let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
     let container_name = format!("palantir-debug-{}", &uuid::Uuid::new_v4().to_string()[..5]);
-    
+
     palantir_core::resources::pod::add_ephemeral_container(
         &client, &namespace, &pod_name, &image, &container_name
     ).await.map_err(|e| e.to_string())?;
-    
+
     Ok(container_name)
 }
 
@@ -98,7 +134,7 @@ pub async fn get_connection_info(
 ) -> Result<palantir_core::client::ConnectionInfo, String> {
     let context_name = state.current_context.lock().unwrap().clone();
     let (config, meta) = palantir_core::client::K8sClient::get_config_internal(context_name).await.map_err(|e| e.to_string())?;
-    
+
     Ok(palantir_core::client::ConnectionInfo {
         cluster_url: config.cluster_url.to_string(),
         current_context: meta.current_context.unwrap_or_default(),
@@ -153,7 +189,9 @@ pub async fn get_namespaces(
     namespace::list_namespaces(&client).await.map_err(|e| e.to_string())
 }
 
-// 범용 리소스 조회 커맨드
+/// 범용 리소스 조회 커맨드
+/// scope: "Namespaced" (기본) 또는 "Cluster" (CRD 등 클러스터 범위 리소스)
+/// plural: CRD의 spec.names.plural 값. None이면 kube-rs가 kind+"s" 규칙으로 추론.
 #[tauri::command]
 pub async fn get_resources_generic(
     state: State<'_, SessionManager>,
@@ -161,16 +199,19 @@ pub async fn get_resources_generic(
     group: String,
     version: String,
     kind: String,
+    scope: Option<String>,
+    plural: Option<String>,
 ) -> Result<Vec<ResourceInfo>, String> {
     let context_name = state.current_context.lock().unwrap().clone();
     let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
     let gvk = GroupVersionKind::gvk(&group, &version, &kind);
-    generic::list_resources_generic(&client, &namespace, &gvk)
+    let scope_str = scope.as_deref().unwrap_or("Namespaced");
+    generic::list_resources_generic(&client, &namespace, &gvk, scope_str, plural.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
 
-// 리소스 YAML 조회 커맨드
+/// 리소스 YAML 조회 커맨드
 #[tauri::command]
 pub async fn get_resource_yaml(
     state: State<'_, SessionManager>,
@@ -179,16 +220,19 @@ pub async fn get_resource_yaml(
     version: String,
     kind: String,
     name: String,
+    scope: Option<String>,
+    plural: Option<String>,
 ) -> Result<String, String> {
     let context_name = state.current_context.lock().unwrap().clone();
     let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
     let gvk = GroupVersionKind::gvk(&group, &version, &kind);
-    generic::get_resource_yaml(&client, &namespace, &gvk, &name)
+    let scope_str = scope.as_deref().unwrap_or("Namespaced");
+    generic::get_resource_yaml(&client, &namespace, &gvk, &name, scope_str, plural.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
 
-// 리소스 YAML 수정 반영(Apply) 커맨드
+/// 리소스 YAML 수정 반영(Apply) 커맨드
 #[tauri::command]
 pub async fn apply_resource_yaml(
     state: State<'_, SessionManager>,
@@ -198,16 +242,19 @@ pub async fn apply_resource_yaml(
     kind: String,
     name: String,
     yaml_content: String,
+    scope: Option<String>,
+    plural: Option<String>,
 ) -> Result<(), String> {
     let context_name = state.current_context.lock().unwrap().clone();
     let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
     let gvk = GroupVersionKind::gvk(&group, &version, &kind);
-    generic::apply_resource_yaml(&client, &namespace, &gvk, &name, &yaml_content)
+    let scope_str = scope.as_deref().unwrap_or("Namespaced");
+    generic::apply_resource_yaml(&client, &namespace, &gvk, &name, &yaml_content, scope_str, plural.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
 
-// 리소스 삭제 커맨드
+/// 리소스 삭제 커맨드
 #[tauri::command]
 pub async fn delete_resource_generic(
     state: State<'_, SessionManager>,
@@ -216,11 +263,14 @@ pub async fn delete_resource_generic(
     version: String,
     kind: String,
     name: String,
+    scope: Option<String>,
+    plural: Option<String>,
 ) -> Result<(), String> {
     let context_name = state.current_context.lock().unwrap().clone();
     let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
     let gvk = GroupVersionKind::gvk(&group, &version, &kind);
-    generic::delete_resource_generic(&client, &namespace, &gvk, &name)
+    let scope_str = scope.as_deref().unwrap_or("Namespaced");
+    generic::delete_resource_generic(&client, &namespace, &gvk, &name, scope_str, plural.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

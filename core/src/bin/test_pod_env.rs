@@ -11,7 +11,7 @@ async fn main() {
     let pod_gvk = GroupVersionKind::gvk("", "v1", "Pod");
 
     println!("Fetching YAML for 'env-test-pod' in 'default' namespace...");
-    match generic::get_resource_yaml(&client, "default", &pod_gvk, "env-test-pod").await {
+    match generic::get_resource_yaml(&client, "default", &pod_gvk, "env-test-pod", "Namespaced", None).await {
         Ok(yaml) => {
             println!("✅ Successfully retrieved YAML");
             

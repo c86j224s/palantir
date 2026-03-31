@@ -46,15 +46,24 @@
 *   [x] **Kubectl Command Assistant**: UI 액션에 대응하는 `kubectl` 명령어 가이드 기능 추가
 *   **Verification**: `ephemeral_it.rs` 통합 테스트 통과 및 `resources/pod.rs` 커버리지 85.27% 달성. `verify_all.sh` 전 단계 성공.
 
-## 🟡 Phase 6: Extended Ecosystem (Current)
-*   [ ] **Port Forwarding**: GUI 상에서 간편하게 로컬 포트 포워딩 설정 및 관리
-*   [ ] **Cluster Context Switch**: 여러 클러스터 설정을 자유롭게 전환하는 기능
-*   [ ] **Helm Integration**: 설치된 차트 목록 조회 및 업그레이드/삭제
-*   [ ] **Custom Resource Definitions (CRD)**: 사용자 정의 리소스 자동 감지 및 지원
+## 🟢 Phase 6: Extended Ecosystem (Completed)
+*   [x] **Port Forwarding**: GUI 상에서 간편하게 로컬 포트 포워딩 설정 및 관리
+*   [x] **Cluster Context Switch**: 여러 클러스터 설정을 자유롭게 전환하는 기능
+*   [x] **Helm Integration**: 설치된 차트 목록 조회 및 업그레이드/삭제
+*   [x] **Custom Resource Definitions (CRD)**: 사용자 정의 리소스 자동 감지 및 지원
+    - `discover_crds` Tauri 커맨드 + 60초 TTL 캐시 (컨텍스트 전환 시 무효화)
+    - served:true 버전만 노출, storage:true 버전을 기본값으로 선택
+    - spec.names.plural 기반 정확한 API 경로 구성 (from_gvk plural 추론 오류 방지)
+    - Cluster-scoped CRD 지원 (Api::all_with), 네임스페이스 셀렉터 비활성화
+    - RBAC 에러와 일반 에러 명시적 구분 UI
+    - **Verification**: `crd.rs` 유닛 테스트 6/6 통과 + `CrdDiscovery.test.tsx` 5/5 통과 + 프론트엔드 빌드 성공
 
 ## 🟠 Phase 7: Optimization & Performance
 *   [ ] **GUI Latency Fix**: WSL2 환경에서의 UI 렌더링 지연 및 기민성 저하 문제 해결
 *   [ ] **Coverage Quality Gate**: 중요 로직(config, generic) 커버리지 80% 이상 유지
+*   [ ] 리소스 간 관계 시각화
+*   [ ] Windows, MacOS, Linux 네이티브 빌드 안정화
+
 
 ---
 

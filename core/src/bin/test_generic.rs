@@ -11,7 +11,7 @@ async fn main() {
     let configmap_gvk = GroupVersionKind::gvk("", "v1", "ConfigMap");
 
     println!("1. Listing ConfigMaps in 'default' namespace...");
-    match generic::list_resources_generic(&client, "default", &configmap_gvk).await {
+    match generic::list_resources_generic(&client, "default", &configmap_gvk, "Namespaced", None).await {
         Ok(list) => {
             println!("✅ Successfully listed {} ConfigMaps", list.len());
             for item in &list {
@@ -20,7 +20,7 @@ async fn main() {
             
             if let Some(first) = list.first() {
                 println!("\n2. Getting YAML for '{}'...", first.name);
-                match generic::get_resource_yaml(&client, "default", &configmap_gvk, &first.name).await {
+                match generic::get_resource_yaml(&client, "default", &configmap_gvk, &first.name, "Namespaced", None).await {
                     Ok(yaml) => {
                         println!("✅ Successfully retrieved YAML ({} chars)", yaml.len());
                         println!("--- YAML Snippet ---");

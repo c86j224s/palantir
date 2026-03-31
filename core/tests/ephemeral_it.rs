@@ -25,7 +25,7 @@ spec:
 "#, pod_name);
 
     println!("🚀 Creating pod for ephemeral test...");
-    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &yaml)
+    generic::apply_resource_yaml(&ctx.client, &ctx.namespace, &pod_gvk, pod_name, &yaml, "Namespaced", None)
         .await.expect("Failed to create pod");
 
     assert!(ctx.wait_for_pod_running(pod_name, 60).await, "Pod failed to reach Running state");
