@@ -8,6 +8,7 @@ import {
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import ResourcesPage from './pages/ResourcesPage';
+import HelmPage from './pages/HelmPage';
 import ResourceDetail from './components/ResourceDetail';
 import Terminal from './components/Terminal';
 import EventsViewer from './components/EventsViewer';
@@ -172,6 +173,7 @@ const App: React.FC = () => {
 
           <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-2">
             <SidebarItem pinned={sidebarPinned} icon={<Grid size={20} />} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+            <SidebarItem pinned={sidebarPinned} icon={<Layers size={20} />} label="Helm" active={activeTab === 'helm'} onClick={() => setActiveTab('helm')} />
             <div className={`py-4 px-3 text-[9px] font-black text-muted-foreground/50 uppercase tracking-[0.3em] transition-opacity ${sidebarPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>Workloads</div>
             {Object.entries(RESOURCES).map(([id, def]) => (
               <SidebarItem pinned={sidebarPinned} key={id} icon={def.icon} label={def.label} active={activeTab === id} onClick={() => setActiveTab(id)} />
@@ -286,12 +288,16 @@ const App: React.FC = () => {
           </header>
 
           <main className="flex-1 overflow-auto custom-scrollbar relative p-10 bg-transparent">
-            <ResourcesPage
-              definition={RESOURCES[activeTab] || RESOURCES.pods}
-              namespace={selectedNamespace}
-              deletingResources={deletingArray}
-              onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
-            />
+            {activeTab === 'helm' ? (
+              <HelmPage namespace={selectedNamespace} />
+            ) : (
+              <ResourcesPage
+                definition={RESOURCES[activeTab] || RESOURCES.pods}
+                namespace={selectedNamespace}
+                deletingResources={deletingArray}
+                onViewDetail={(name: string) => setSelectedResource({ name, definition: RESOURCES[activeTab] || RESOURCES.pods })}
+              />
+            )}
           </main>
         </div>
 

@@ -35,7 +35,10 @@ fn main() {
             commands::stop_session,
             commands::start_port_forward,
             commands::stop_port_forward,
-            commands::list_port_forwards
+            commands::list_port_forwards,
+            commands::get_helm_releases,
+            commands::get_helm_manifest,
+            commands::preview_helm_template
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

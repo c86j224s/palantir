@@ -1,7 +1,44 @@
-use palantir_core::{K8sClient, resources::{pod, namespace, deployment, service, generic}, models::{PodInfo, ResourceInfo}, config::ContextInfo};
+use palantir_core::{K8sClient, resources::{pod, namespace, deployment, service, generic, helm}, models::{PodInfo, ResourceInfo}, config::ContextInfo};
 use kube::core::GroupVersionKind;
 use tauri::State;
 use crate::commands::stream_cmd::SessionManager;
+
+// Helm 릴리스 목록 조회
+#[tauri::command]
+pub async fn get_helm_releases(
+    state: State<'_, SessionManager>,
+    namespace: Option<String>,
+) -> Result<Vec<helm::HelmRelease>, String> {
+    let context_name = state.current_context.lock().unwrap().clone();
+    let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
+    helm::list_releases(&client, namespace.as_deref()).await.map_err(|e| e.to_string())
+}
+
+// 특정 Helm 릴리스 매니페스트 조회
+#[tauri::command]
+pub async fn get_helm_manifest(
+    state: State<'_, SessionManager>,
+    namespace: String,
+    name: String,
+    revision: i32,
+) -> Result<String, String> {
+    let context_name = state.current_context.lock().unwrap().clone();
+    let client = K8sClient::new_with_context(context_name).await.map_err(|e| e.to_string())?;
+    helm::get_manifest(&client, &namespace, &name, revision).await.map_err(|e| e.to_string())
+}
+
+// 로컬 차트 템플릿 미리보기
+#[tauri::command]
+pub async fn preview_helm_template(
+    chart_path: String,
+    values_paths: Vec<String>,
+    release_name: Option<String>,
+    namespace: Option<String>,
+) -> Result<String, String> {
+    palantir_core::actions::helm_local::template_local_chart(
+        &chart_path, values_paths, release_name.as_deref(), namespace.as_deref()
+    ).await.map_err(|e| e.to_string())
+}
 
 // 컨텍스트 목록 조회 커맨드
 #[tauri::command]
